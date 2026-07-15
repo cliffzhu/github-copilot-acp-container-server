@@ -261,6 +261,105 @@ Notes for serverless:
 - The image now creates `/workspace` internally, so host volume mounts are optional.
 - If your platform supports persistent volume mounts, mounting storage to `/workspace` and `/root/.copilot` can preserve runtime state between restarts.
 
+### Azure Container Apps
+
+Prerequisites:
+
+- Azure CLI (`az`) installed
+- Logged in: `az login`
+
+Create resource group and Container Apps environment:
+
+```bash
+az group create --name <resource-group> --location <location>
+
+az containerapp env create \
+	--name <containerapp-env> \
+	--resource-group <resource-group> \
+	--location <location>
+```
+
+Deploy from GHCR image:
+
+```bash
+az containerapp create \
+	--name <app-name> \
+	--resource-group <resource-group> \
+	--environment <containerapp-env> \
+	--image ghcr.io/cliffzhu/github-copilot-acp-container-server:latest \
+	--target-port 3000 \
+	--ingress external \
+	--env-vars ACP_PORT=3000 ACP_BIND_ALL_INTERFACES=true ACP_WORKDIR=/workspace ACP_REQUIRE_LOGIN=false ACP_LOGIN_STORE_PLAINTEXT=false \
+	--secrets copilotToken=<your-copilot-token> \
+	--env-vars COPILOT_GITHUB_TOKEN=secretref:copilotToken
+```
+
+Get app URL:
+
+```bash
+az containerapp show \
+	--name <app-name> \
+	--resource-group <resource-group> \
+	--query properties.configuration.ingress.fqdn \
+	-o tsv
+```
+
+### AWS App Runner (via ECR)
+
+App Runner works best with ECR images. Mirror GHCR image into ECR, then deploy.
+
+Prerequisites:
+
+- AWS CLI configured (`aws configure`)
+- Region selected (example uses `<region>`)
+
+Create ECR repo and push image:
+
+```bash
+aws ecr create-repository --repository-name github-copilot-acp-container-server --region <region>
+
+aws ecr get-login-password --region <region> | docker login --username AWS --password-stdin <account-id>.dkr.ecr.<region>.amazonaws.com
+
+docker pull ghcr.io/cliffzhu/github-copilot-acp-container-server:latest
+docker tag ghcr.io/cliffzhu/github-copilot-acp-container-server:latest <account-id>.dkr.ecr.<region>.amazonaws.com/github-copilot-acp-container-server:latest
+docker push <account-id>.dkr.ecr.<region>.amazonaws.com/github-copilot-acp-container-server:latest
+```
+
+Create App Runner service:
+
+```bash
+aws apprunner create-service \
+	--service-name github-copilot-acp-container-server \
+	--region <region> \
+	--source-configuration '{
+		"AuthenticationConfiguration": {"AccessRoleArn": "<apprunner-ecr-access-role-arn>"},
+		"ImageRepository": {
+			"ImageIdentifier": "<account-id>.dkr.ecr.<region>.amazonaws.com/github-copilot-acp-container-server:latest",
+			"ImageRepositoryType": "ECR",
+			"ImageConfiguration": {
+				"Port": "3000",
+				"RuntimeEnvironmentVariables": {
+					"ACP_PORT": "3000",
+					"ACP_BIND_ALL_INTERFACES": "true",
+					"ACP_WORKDIR": "/workspace",
+					"ACP_REQUIRE_LOGIN": "false",
+					"ACP_LOGIN_STORE_PLAINTEXT": "false"
+				},
+				"RuntimeEnvironmentSecrets": {
+					"COPILOT_GITHUB_TOKEN": "<secrets-manager-or-ssm-arn>"
+				}
+			}
+		},
+		"AutoDeploymentsEnabled": true
+	}'
+```
+
+Get service URL:
+
+```bash
+aws apprunner list-services --region <region>
+```
+
 ## Notes
 
 - The container installs `@github/copilot` and starts `copilot --acp` directly.
