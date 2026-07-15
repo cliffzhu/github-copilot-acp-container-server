@@ -1,0 +1,14 @@
+services:
+  acp-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: github-copilot-acp-container-server:local
+    env_file:
+      - .env
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./workspace:/workspace
+      - ./copilot-home:/root/.copilot
+    restart: unless-stopped
