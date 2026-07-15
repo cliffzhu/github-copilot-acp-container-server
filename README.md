@@ -25,6 +25,24 @@ copilot --acp --port <ACP_PORT> -C <ACP_WORKDIR> --agent <ACP_AGENT> --available
 - Docker 24+ (for container workflows)
 - Docker Compose v2
 
+## Readable Build Output (PuTTY / Dark Consoles)
+
+If Docker build output is hard to read (for example dark-blue BuildKit UI in PuTTY), use plain/no-color mode:
+
+Linux/macOS:
+
+BUILDKIT_PROGRESS=plain NO_COLOR=1 TERM=dumb docker compose build
+
+Or use the repository helper script:
+
+./build-plain.sh
+
+Windows PowerShell:
+
+$env:BUILDKIT_PROGRESS = "plain"
+$env:NO_COLOR = "1"
+docker compose build
+
 ## Install on Linux (from GitHub)
 
 1. Install Docker Engine and Docker Compose plugin on your Linux host.
@@ -51,7 +69,7 @@ cp .env.example .env
 5. Build and start the ACP container:
 
 ```bash
-docker compose up -d --build
+BUILDKIT_PROGRESS=plain NO_COLOR=1 TERM=dumb docker compose up -d --build
 ```
 
 6. Watch startup logs and complete GitHub device authorization when prompted:
@@ -173,6 +191,10 @@ All runtime values are environment variables loaded from `.env`.
 | `ACP_BIND_ALL_INTERFACES` | `true` | When true, container opens `0.0.0.0:$ACP_PORT` and forwards to Copilot's loopback listener so Docker published ports work from the host. |
 | `ACP_INTERNAL_PORT` | `3001` | Internal loopback port used by Copilot when interface binding proxy mode is enabled. |
 | `ACP_BOOTSTRAP_DEFAULT_AGENT` | `true` | When `ACP_AGENT=ACP-Chatbot`, startup writes a sample `ACP-Chatbot.agent.md` into `$ACP_WORKDIR/.github/agents/` if missing, so the custom agent is always available. |
+
+Login output note:
+
+- Startup forces plain terminal output (`TERM=dumb`, `NO_COLOR=1`) during `copilot login` so device-code instructions are more likely to be visible via `docker compose logs -f acp-server`.
 
 ## Windows concept script
 

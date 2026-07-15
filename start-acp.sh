@@ -32,10 +32,14 @@ is_copilot_authenticated() {
   copilot -p "Reply with OK only." --allow-all-tools --output-format json >/dev/null 2>&1
 }
 
+copilot_login_plain() {
+  env TERM=dumb NO_COLOR=1 copilot login
+}
+
 attempt_copilot_login() {
   # Prefer direct login to keep device-code output intact and avoid TTY shim issues.
   echo "Attempting direct copilot login..."
-  if copilot login; then
+  if copilot_login_plain; then
     return 0
   fi
 
@@ -43,7 +47,7 @@ attempt_copilot_login() {
 
   if [ "$ACP_LOGIN_STORE_PLAINTEXT" = "true" ] && command -v script >/dev/null 2>&1; then
     echo "Attempting copilot login via script..."
-    if printf 'y\n' | script -q -c "copilot login" /dev/null; then
+    if printf 'y\n' | script -q -c "env TERM=dumb NO_COLOR=1 copilot login" /dev/null; then
       return 0
     fi
     echo "script login attempt failed."
@@ -54,7 +58,7 @@ attempt_copilot_login() {
     if expect <<'EOF'
 set timeout -1
 log_user 1
-spawn copilot login
+spawn env TERM=dumb NO_COLOR=1 copilot login
 expect {
   -re {System keychain unavailable\. Store token in plaintext config file\? \(y/N\)} {
     send -- "y\r"
