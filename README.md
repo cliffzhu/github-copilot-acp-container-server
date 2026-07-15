@@ -168,7 +168,8 @@ All runtime values are environment variables loaded from `.env`.
 | `ACP_DISALLOW_TEMP_DIR` | `true` | Adds `--disallow-temp-dir` when true. |
 | `ACP_DISABLE_BUILTIN_MCPS` | `true` | Adds `--disable-builtin-mcps` when true. |
 | `ACP_REQUIRE_LOGIN` | `true` | When true, container startup runs `copilot login` first, prints GitHub device-flow code/instructions, and starts ACP only after successful authorization. |
-| `ACP_LOGIN_STORE_PLAINTEXT` | `true` | When login runs in a headless container and no system keychain is available, startup automatically answers the plaintext storage confirmation and continues after device authorization. |
+| `ACP_LOGIN_STORE_PLAINTEXT` | `true` | Enables fallback automation for the plaintext token confirmation prompt in headless environments if direct login fails. |
+| `ACP_LOGIN_USE_EXPECT` | `false` | Optional fallback path. When true, startup may use `expect` as a last resort after direct and `script` login attempts fail. |
 | `ACP_BIND_ALL_INTERFACES` | `true` | When true, container opens `0.0.0.0:$ACP_PORT` and forwards to Copilot's loopback listener so Docker published ports work from the host. |
 | `ACP_INTERNAL_PORT` | `3001` | Internal loopback port used by Copilot when interface binding proxy mode is enabled. |
 | `ACP_BOOTSTRAP_DEFAULT_AGENT` | `true` | When `ACP_AGENT=ACP-Chatbot`, startup writes a sample `ACP-Chatbot.agent.md` into `$ACP_WORKDIR/.github/agents/` if missing, so the custom agent is always available. |

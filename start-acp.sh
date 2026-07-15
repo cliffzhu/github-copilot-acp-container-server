@@ -9,6 +9,7 @@ ACP_DISALLOW_TEMP_DIR="${ACP_DISALLOW_TEMP_DIR:-true}"
 ACP_DISABLE_BUILTIN_MCPS="${ACP_DISABLE_BUILTIN_MCPS:-true}"
 ACP_REQUIRE_LOGIN="${ACP_REQUIRE_LOGIN:-true}"
 ACP_LOGIN_STORE_PLAINTEXT="${ACP_LOGIN_STORE_PLAINTEXT:-true}"
+ACP_LOGIN_USE_EXPECT="${ACP_LOGIN_USE_EXPECT:-false}"
 ACP_BIND_ALL_INTERFACES="${ACP_BIND_ALL_INTERFACES:-true}"
 ACP_INTERNAL_PORT="${ACP_INTERNAL_PORT:-3001}"
 ACP_BOOTSTRAP_DEFAULT_AGENT="${ACP_BOOTSTRAP_DEFAULT_AGENT:-true}"
@@ -31,6 +32,48 @@ is_copilot_authenticated() {
   copilot -p "Reply with OK only." --allow-all-tools --output-format json >/dev/null 2>&1
 }
 
+attempt_copilot_login() {
+  # Prefer direct login to keep device-code output intact and avoid TTY shim issues.
+  echo "Attempting direct copilot login..."
+  if copilot login; then
+    return 0
+  fi
+
+  echo "direct login attempt failed; trying fallback methods..."
+
+  if [ "$ACP_LOGIN_STORE_PLAINTEXT" = "true" ] && command -v script >/dev/null 2>&1; then
+    echo "Attempting copilot login via script..."
+    if printf 'y\n' | script -q -c "copilot login" /dev/null; then
+      return 0
+    fi
+    echo "script login attempt failed."
+  fi
+
+  if [ "$ACP_LOGIN_USE_EXPECT" = "true" ] && [ "$ACP_LOGIN_STORE_PLAINTEXT" = "true" ] && command -v expect >/dev/null 2>&1; then
+    echo "Attempting copilot login via expect..."
+    if expect <<'EOF'
+set timeout -1
+log_user 1
+spawn copilot login
+expect {
+  -re {System keychain unavailable\. Store token in plaintext config file\? \(y/N\)} {
+    send -- "y\r"
+    exp_continue
+  }
+  eof
+}
+set status [lindex [wait] 3]
+exit $status
+EOF
+    then
+      return 0
+    fi
+    echo "expect login attempt failed."
+  fi
+
+  return 1
+}
+
 ensure_copilot_auth() {
   if has_auth_token_env; then
     echo "Copilot auth token found in environment."
@@ -49,35 +92,7 @@ ensure_copilot_auth() {
   while true; do
     # This command prints GitHub device-flow instructions and waits for completion.
     # In headless containers, Copilot may ask whether plaintext credential storage is allowed.
-    if [ "$ACP_LOGIN_STORE_PLAINTEXT" = "true" ] && command -v expect >/dev/null 2>&1; then
-      if expect <<'EOF'
-set timeout -1
-log_user 1
-spawn copilot login
-expect {
-  -re {System keychain unavailable\. Store token in plaintext config file\? \(y/N\)} {
-    send -- "y\r"
-    exp_continue
-  }
-  eof
-}
-set status [lindex [wait] 3]
-exit $status
-EOF
-      then
-        if is_copilot_authenticated; then
-          echo "Copilot authentication successful."
-          return 0
-        fi
-      fi
-    elif [ "$ACP_LOGIN_STORE_PLAINTEXT" = "true" ] && command -v script >/dev/null 2>&1; then
-      if printf 'y\n' | script -q -c "copilot login" /dev/null; then
-        if is_copilot_authenticated; then
-          echo "Copilot authentication successful."
-          return 0
-        fi
-      fi
-    elif copilot login; then
+    if attempt_copilot_login; then
       if is_copilot_authenticated; then
         echo "Copilot authentication successful."
         return 0
