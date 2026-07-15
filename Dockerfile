@@ -9,6 +9,8 @@ RUN apt-get update \
 
 RUN npm install -g @github/copilot@latest
 
+RUN mkdir -p /workspace
+
 COPY start-acp.sh /usr/local/bin/start-acp.sh
 RUN chmod +x /usr/local/bin/start-acp.sh
 
