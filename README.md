@@ -71,6 +71,52 @@ Expected outcome:
 - ACP server reachable at `tcp://localhost:3000`
 - Response succeeds without custom-agent-not-found errors
 
+## Install on Windows (from GitHub)
+
+1. Install Docker Desktop (with Docker Compose v2) and Git for Windows.
+
+2. Open PowerShell and clone this repository:
+
+```powershell
+git clone https://github.com/cliffzhu/github-copilot-acp-container-server.git
+cd github-copilot-acp-container-server
+```
+
+3. Create runtime folders used by bind mounts:
+
+```powershell
+New-Item -ItemType Directory -Force -Path workspace, copilot-home | Out-Null
+```
+
+4. Create environment file:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+5. Build and start the ACP container:
+
+```powershell
+docker compose up -d --build
+```
+
+6. Watch startup logs and complete GitHub device authorization when prompted:
+
+```powershell
+docker compose logs -f acp-server
+```
+
+7. Verify from the host with the PowerShell client:
+
+```powershell
+./ask-acp.ps1 -Question "Say your agent name in one sentence."
+```
+
+Expected outcome:
+
+- ACP server reachable at `tcp://localhost:3000`
+- Response succeeds without custom-agent-not-found errors
+
 ## Quick start (container)
 
 1. Create environment file:
