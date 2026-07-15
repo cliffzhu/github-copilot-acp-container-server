@@ -203,6 +203,64 @@ Example:
 docker build -t github-copilot-acp-container-server:local .
 ```
 
+## Publish a standalone image on GitHub (GHCR)
+
+This repository includes a publish workflow at [.github/workflows/publish-image.yml](.github/workflows/publish-image.yml).
+
+What it does:
+
+- Builds and pushes `ghcr.io/<owner>/<repo>` on every push to `main`
+- Pushes version tags (for example `v1.0.0`) when you push git tags
+- Maintains `latest` for the default branch
+
+How to use it:
+
+1. Ensure GitHub Actions is enabled for the repository.
+
+2. Push to `main` (or push a version tag):
+
+```bash
+git checkout main
+git pull
+git tag v1.0.0
+git push origin main --tags
+```
+
+3. Pull and run from GHCR on any host/platform:
+
+```bash
+docker pull ghcr.io/cliffzhu/github-copilot-acp-container-server:latest
+```
+
+## Deploy directly to serverless container apps
+
+Use image:
+
+```text
+ghcr.io/cliffzhu/github-copilot-acp-container-server:latest
+```
+
+Minimum required environment variables:
+
+- `ACP_PORT=3000`
+- `ACP_BIND_ALL_INTERFACES=true`
+- `ACP_WORKDIR=/workspace`
+- `COPILOT_GITHUB_TOKEN=<your token>` (or `GH_TOKEN` / `GITHUB_TOKEN`)
+
+Recommended variables for non-interactive serverless platforms:
+
+- `ACP_REQUIRE_LOGIN=false`
+- `ACP_LOGIN_STORE_PLAINTEXT=false`
+
+Container port to expose:
+
+- `3000`
+
+Notes for serverless:
+
+- The image now creates `/workspace` internally, so host volume mounts are optional.
+- If your platform supports persistent volume mounts, mounting storage to `/workspace` and `/root/.copilot` can preserve runtime state between restarts.
+
 ## Notes
 
 - The container installs `@github/copilot` and starts `copilot --acp` directly.
