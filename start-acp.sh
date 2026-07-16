@@ -1,9 +1,25 @@
 #!/usr/bin/env sh
 set -eu
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+
+if [ -f "$SCRIPT_DIR/.env" ]; then
+  # Load repo-local defaults for native Linux and WSL runs.
+  set -a
+  . "$SCRIPT_DIR/.env"
+  set +a
+fi
 
 ACP_PORT="${ACP_PORT:-3000}"
 ACP_AGENT="${ACP_AGENT:-ACP-Chatbot}"
-ACP_WORKDIR="${ACP_WORKDIR:-/workspace}"
+if [ -z "${ACP_WORKDIR:-}" ]; then
+  if [ -d /workspace ] || [ -w /workspace ] 2>/dev/null; then
+    ACP_WORKDIR="/workspace"
+  else
+    ACP_WORKDIR="$SCRIPT_DIR/workspace"
+  fi
+else
+  ACP_WORKDIR="$ACP_WORKDIR"
+fi
 ACP_AVAILABLE_TOOLS="${ACP_AVAILABLE_TOOLS:-glob,rg,read_agent,list_agents,view,skill}"
 ACP_DISALLOW_TEMP_DIR="${ACP_DISALLOW_TEMP_DIR:-true}"
 ACP_DISABLE_BUILTIN_MCPS="${ACP_DISABLE_BUILTIN_MCPS:-true}"
@@ -68,6 +84,18 @@ preflight_startup() {
 
 has_auth_token_env() {
   [ -n "${COPILOT_GITHUB_TOKEN:-}" ] || [ -n "${GH_TOKEN:-}" ] || [ -n "${GITHUB_TOKEN:-}" ]
+}
+
+auth_token_env_name() {
+  if [ -n "${COPILOT_GITHUB_TOKEN:-}" ]; then
+    echo "COPILOT_GITHUB_TOKEN"
+  elif [ -n "${GH_TOKEN:-}" ]; then
+    echo "GH_TOKEN"
+  elif [ -n "${GITHUB_TOKEN:-}" ]; then
+    echo "GITHUB_TOKEN"
+  else
+    echo ""
+  fi
 }
 
 is_copilot_authenticated() {
@@ -189,7 +217,7 @@ EOF
 
 ensure_copilot_auth() {
   if has_auth_token_env; then
-    echo "Copilot auth token found in environment."
+    echo "Copilot token auth found in environment via $(auth_token_env_name); skipping device sign-in."
     return 0
   fi
 

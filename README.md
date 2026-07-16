@@ -5,6 +5,7 @@ Container launcher for GitHub Copilot CLI in ACP server mode.
 The container runs the real `copilot --acp` server process. It does not proxy requests through a custom Express server.
 
 Reference concept for Windows is in [start-acp.ps1](start-acp.ps1). Linux/container startup is implemented by [start-acp.sh](start-acp.sh).
+Windows via WSL is supported by [start-acp-wsl.ps1](start-acp-wsl.ps1) and the same [start-acp.sh](start-acp.sh) bootstrap script.
 
 ## What starts in the container
 
@@ -49,6 +50,42 @@ sudo docker exec -i github-copilot-acp-container-server-acp-server-1 sh -lc 'cop
 ```
 
 For native host run (without Docker), see Native Linux Run below.
+
+## Native Windows via WSL
+
+You can run the server natively on Windows through WSL instead of Docker.
+
+Requirements:
+
+- Windows 11 with WSL2 enabled
+- A Linux distro installed in WSL (for example Ubuntu)
+- Node.js and npm available inside WSL
+- Git inside WSL
+- `ripgrep`, `socat`, `util-linux`, and `expect` inside WSL
+- GitHub Copilot CLI installed inside WSL: `sudo npm install -g @github/copilot@latest`
+
+Quick start from Windows PowerShell:
+
+```powershell
+git clone https://github.com/cliffzhu/github-copilot-acp-container-server.git
+cd github-copilot-acp-container-server
+Copy-Item .env.example .env
+.\start-acp-wsl.ps1
+```
+
+Or run the same project directly from inside WSL:
+
+```bash
+cd /path/to/github-copilot-acp-container-server
+cp .env.example .env
+./start-acp.sh
+```
+
+WSL notes:
+
+- The startup script now reads a repo-local `.env` when present.
+- If `/workspace` is not available, the startup script defaults `ACP_WORKDIR` to `<repo>/workspace`.
+- Use `ACP_BIND_ALL_INTERFACES=false` for loopback-only mode, or `true` if you want the WSL process to bind publicly on the port.
 
 ## Native Linux Run (No Docker)
 
@@ -247,6 +284,9 @@ All runtime values are environment variables loaded from `.env`.
 | `ACP_DISALLOW_TEMP_DIR` | `true` | Adds `--disallow-temp-dir` when true. |
 | `ACP_DISABLE_BUILTIN_MCPS` | `true` | Adds `--disable-builtin-mcps` when true. |
 | `ACP_REQUIRE_LOGIN` | `true` | When true, container startup runs `copilot login` first, prints GitHub device-flow code/instructions, and starts ACP only after successful authorization. |
+| `COPILOT_GITHUB_TOKEN` | _unset_ | Optional GitHub token auth, including fine-grained PATs with the required Copilot access. When set, startup skips device sign-in and uses the token instead. |
+| `GH_TOKEN` | _unset_ | Optional GitHub token auth, including fine-grained PATs with the required Copilot access. Same behavior as `COPILOT_GITHUB_TOKEN`. |
+| `GITHUB_TOKEN` | _unset_ | Optional GitHub token auth, including fine-grained PATs with the required Copilot access. Same behavior as `COPILOT_GITHUB_TOKEN`. |
 | `ACP_LOGIN_STORE_PLAINTEXT` | `true` | Enables fallback automation for the plaintext token confirmation prompt in headless environments if direct login fails. |
 | `ACP_LOGIN_USE_EXPECT` | `false` | Optional fallback path. When true, startup may use `expect` as a last resort after direct and `script` login attempts fail. |
 | `ACP_COPILOT_SELF_HEAL` | `true` | On startup, runs a Copilot CLI health check and performs a one-time `@github/copilot` reinstall if the native binary fails to execute on that VM. |
@@ -257,6 +297,41 @@ All runtime values are environment variables loaded from `.env`.
 Login output note:
 
 - Startup forces plain terminal output (`TERM=dumb`, `NO_COLOR=1`) during `copilot login` so device-code instructions are more likely to be visible via `docker compose logs -f acp-server`.
+- If any of `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN` is set, startup skips device sign-in and uses token-based auth instead. Fine-grained PATs work the same way as long as they have the required Copilot permissions.
+
+Token auth and device sign-in also apply to WSL runs because the same `start-acp.sh` bootstrap is used there.
+
+Example token auth setup:
+
+```bash
+export COPILOT_GITHUB_TOKEN="<your-token>"
+./start-acp.sh
+```
+
+## Authentication Modes
+
+The startup script supports two auth flows:
+
+1. Device sign-in:
+
+```bash
+unset COPILOT_GITHUB_TOKEN GH_TOKEN GITHUB_TOKEN
+./start-acp.sh
+```
+
+2. Token sign-in:
+
+```bash
+export COPILOT_GITHUB_TOKEN="<your-token>"
+./start-acp.sh
+```
+
+Token precedence:
+
+- `COPILOT_GITHUB_TOKEN` is checked first.
+- If it is unset, `GH_TOKEN` is checked next.
+- If that is unset, `GITHUB_TOKEN` is checked last.
+- Any of the three can be a fine-grained Personal Access Token, as long as it includes the required Copilot permissions.
 
 ## Windows concept script
 
