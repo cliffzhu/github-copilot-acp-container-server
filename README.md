@@ -25,6 +25,44 @@ copilot --acp --port <ACP_PORT> -C <ACP_WORKDIR> --agent <ACP_AGENT> --available
 - Docker 24+ (for container workflows)
 - Docker Compose v2
 
+For native host run (without Docker), see Native Linux Run below.
+
+## Native Linux Run (No Docker)
+
+You can run the same startup script directly on a Linux host:
+
+1. Install runtime dependencies:
+
+```bash
+# Debian/Ubuntu example
+sudo apt-get update
+sudo apt-get install -y ca-certificates git ripgrep socat util-linux expect
+sudo npm install -g @github/copilot@latest
+```
+
+2. Prepare workspace and environment:
+
+```bash
+mkdir -p ./workspace
+export ACP_WORKDIR="$PWD/workspace"
+export ACP_PORT=3000
+export ACP_AGENT=ACP-Chatbot
+```
+
+3. Start loopback-only mode (no socat required):
+
+```bash
+ACP_BIND_ALL_INTERFACES=false ./start-acp.sh
+```
+
+4. Start public-bind mode (requires socat):
+
+```bash
+ACP_BIND_ALL_INTERFACES=true ./start-acp.sh
+```
+
+Startup pre-checks now validate required commands and create `ACP_WORKDIR` if missing.
+
 ## Readable Build Output (PuTTY / Dark Consoles)
 
 If Docker build output is hard to read (for example dark-blue BuildKit UI in PuTTY), use plain/no-color mode:
@@ -181,7 +219,7 @@ All runtime values are environment variables loaded from `.env`.
 |---|---|---|
 | `ACP_PORT` | `3000` | ACP TCP port passed to `copilot --acp`. |
 | `ACP_AGENT` | `ACP-Chatbot` | Agent passed to `--agent`. |
-| `ACP_WORKDIR` | `/workspace` | Working directory passed to `-C`. |
+| `ACP_WORKDIR` | `/workspace` | Working directory passed to `-C`. Created automatically at startup when missing. |
 | `ACP_AVAILABLE_TOOLS` | `glob,rg,read_agent,list_agents,view,skill` | Explicit allow-list passed to `--available-tools`. |
 | `ACP_DISALLOW_TEMP_DIR` | `true` | Adds `--disallow-temp-dir` when true. |
 | `ACP_DISABLE_BUILTIN_MCPS` | `true` | Adds `--disable-builtin-mcps` when true. |
@@ -189,7 +227,7 @@ All runtime values are environment variables loaded from `.env`.
 | `ACP_LOGIN_STORE_PLAINTEXT` | `true` | Enables fallback automation for the plaintext token confirmation prompt in headless environments if direct login fails. |
 | `ACP_LOGIN_USE_EXPECT` | `false` | Optional fallback path. When true, startup may use `expect` as a last resort after direct and `script` login attempts fail. |
 | `ACP_COPILOT_SELF_HEAL` | `true` | On startup, runs a Copilot CLI health check and performs a one-time `@github/copilot` reinstall if the native binary fails to execute on that VM. |
-| `ACP_BIND_ALL_INTERFACES` | `true` | When true, container opens `0.0.0.0:$ACP_PORT` and forwards to Copilot's loopback listener so Docker published ports work from the host. |
+| `ACP_BIND_ALL_INTERFACES` | `true` | When true, startup uses `socat` to open `0.0.0.0:$ACP_PORT` and forward to Copilot's loopback listener. |
 | `ACP_INTERNAL_PORT` | `3001` | Internal loopback port used by Copilot when interface binding proxy mode is enabled. |
 | `ACP_BOOTSTRAP_DEFAULT_AGENT` | `true` | When `ACP_AGENT=ACP-Chatbot`, startup writes a sample `ACP-Chatbot.agent.md` into `$ACP_WORKDIR/.github/agents/` if missing, so the custom agent is always available. |
 
