@@ -2,12 +2,33 @@
 set -eu
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 
-if [ -f "$SCRIPT_DIR/.env" ]; then
-  # Load repo-local defaults for native Linux and WSL runs.
-  set -a
-  . "$SCRIPT_DIR/.env"
-  set +a
-fi
+load_env_defaults() {
+  file="$1"
+  [ -f "$file" ] || return 0
+
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      ''|'#'*)
+        continue
+        ;;
+      *=*)
+        key="${line%%=*}"
+        value="${line#*=}"
+        case "$key" in
+          [A-Za-z_][A-Za-z0-9_]*)
+            eval "is_set=\${$key+x}"
+            if [ -z "$is_set" ]; then
+              export "$key=$value"
+            fi
+            ;;
+        esac
+        ;;
+    esac
+  done < "$file"
+}
+
+# Load repo-local defaults for native Linux and WSL runs.
+load_env_defaults "$SCRIPT_DIR/.env"
 
 ACP_PORT="${ACP_PORT:-3000}"
 ACP_AGENT="${ACP_AGENT:-ACP-Chatbot}"
@@ -30,6 +51,8 @@ ACP_COPILOT_SELF_HEAL="${ACP_COPILOT_SELF_HEAL:-true}"
 ACP_BIND_ALL_INTERFACES="${ACP_BIND_ALL_INTERFACES:-true}"
 ACP_INTERNAL_PORT="${ACP_INTERNAL_PORT:-3001}"
 ACP_BOOTSTRAP_DEFAULT_AGENT="${ACP_BOOTSTRAP_DEFAULT_AGENT:-true}"
+ACP_AUTH_METHOD_ID="${ACP_AUTH_METHOD_ID:-}"
+ACP_AGENT_TEMPLATE_SOURCE="${ACP_AGENT_TEMPLATE_SOURCE:-$SCRIPT_DIR/ACP-Chatbot.agent.md}"
 
 if ! command -v copilot >/dev/null 2>&1; then
   echo "copilot command not found. Ensure @github/copilot is installed." >&2
@@ -259,30 +282,18 @@ bootstrap_default_agent() {
 
   mkdir -p "$AGENT_DIR"
 
-  if [ -f "$AGENT_FILE" ]; then
-    return 0
+  if [ ! -f "$ACP_AGENT_TEMPLATE_SOURCE" ]; then
+    echo "Default agent template not found: $ACP_AGENT_TEMPLATE_SOURCE" >&2
+    echo "Expected the template to be present in the runtime image before bootstrap starts." >&2
+    return 1
   fi
 
-  cat > "$AGENT_FILE" <<'EOF'
----
-name: ACP-Chatbot
-description: Use for ACP container server testing, generic Q&A, and repository-aware assistance.
----
-You are ACP-Chatbot, a practical assistant for ACP server sessions.
+  if [ ! -f "$AGENT_FILE" ] || ! cmp -s "$ACP_AGENT_TEMPLATE_SOURCE" "$AGENT_FILE"; then
+    cp "$ACP_AGENT_TEMPLATE_SOURCE" "$AGENT_FILE"
+    echo "Synced default custom agent into runtime workdir: $AGENT_FILE"
+  fi
 
-Behavior:
-- Give concise, accurate answers first.
-- Ask clarifying questions only when necessary.
-- Prefer actionable guidance with runnable commands.
-- When debugging, explain likely cause and quickest verification step.
-
-Runtime context:
-- ACP server port is 3000 unless configured otherwise.
-- ACP working directory is /workspace by default.
-- Focus on repository-aware answers when files are available.
-EOF
-
-  echo "Bootstrapped default custom agent at: $AGENT_FILE"
+  return 0
 }
 
 echo "Starting Copilot ACP server"
@@ -290,6 +301,9 @@ echo "Working directory: $ACP_WORKDIR"
 echo "Port: $ACP_PORT"
 echo "Agent: $ACP_AGENT"
 echo "Available tools: $ACP_AVAILABLE_TOOLS"
+if [ -n "$ACP_AUTH_METHOD_ID" ]; then
+  echo "ACP auth method id configured: $ACP_AUTH_METHOD_ID"
+fi
 
 if ! preflight_startup; then
   exit 1

@@ -7,6 +7,8 @@ The container runs the real `copilot --acp` server process. It does not proxy re
 Reference concept for Windows is in [start-acp.ps1](start-acp.ps1). Linux/container startup is implemented by [start-acp.sh](start-acp.sh).
 Windows via WSL is supported by [start-acp-wsl.ps1](start-acp-wsl.ps1) and the same [start-acp.sh](start-acp.sh) bootstrap script.
 
+The default agent template now lives next to [.env](.env) as [ACP-Chatbot.agent.md](ACP-Chatbot.agent.md) and is synced into the runtime workdir on startup.
+
 ## What starts in the container
 
 Container entrypoint:
@@ -25,6 +27,46 @@ copilot --acp --port <ACP_PORT> -C <ACP_WORKDIR> --agent <ACP_AGENT> --available
 
 - Docker 24+ (for container workflows)
 - Docker Compose v2
+
+## Deployment Commands
+
+Use one of these entry points depending on where you want to run the server:
+
+Docker Compose:
+
+```bash
+BUILDKIT_PROGRESS=plain NO_COLOR=1 TERM=dumb docker compose up -d --build
+```
+
+Docker Compose with WebSocket adapter (builds and runs both images):
+
+```bash
+BUILDKIT_PROGRESS=plain NO_COLOR=1 TERM=dumb docker compose --profile websocket up -d --build
+```
+
+WSL from Windows PowerShell:
+
+```powershell
+.\start-acp-wsl.ps1
+```
+
+Native Linux host:
+
+```bash
+ACP_BIND_ALL_INTERFACES=false ./start-acp.sh
+```
+
+If you want public bind mode on Linux or WSL, use:
+
+```bash
+ACP_BIND_ALL_INTERFACES=true ./start-acp.sh
+```
+
+WebSocket adapter (custom bridge in Docker):
+
+```bash
+ACP_WEBSOCKET_PORT=8081 WEBSOCKET_TOKEN="<long-random-secret>" ./start-websocket-proxy.sh
+```
 
 ## Terminal Baseline (Match This VM)
 
@@ -85,6 +127,7 @@ WSL notes:
 
 - The startup script now reads a repo-local `.env` when present.
 - If `/workspace` is not available, the startup script defaults `ACP_WORKDIR` to `<repo>/workspace`.
+- The default agent template is sourced from the project root file [ACP-Chatbot.agent.md](ACP-Chatbot.agent.md) and synced into `$ACP_WORKDIR/.github/agents/ACP-Chatbot.agent.md` at startup.
 - Use `ACP_BIND_ALL_INTERFACES=false` for loopback-only mode, or `true` if you want the WSL process to bind publicly on the port.
 
 ## Native Linux Run (No Docker)
@@ -170,6 +213,12 @@ cp .env.example .env
 BUILDKIT_PROGRESS=plain NO_COLOR=1 TERM=dumb docker compose up -d --build
 ```
 
+To build and start ACP + WebSocket adapter together:
+
+```bash
+BUILDKIT_PROGRESS=plain NO_COLOR=1 TERM=dumb docker compose --profile websocket up -d --build
+```
+
 6. Watch startup logs and complete GitHub device authorization when prompted:
 
 ```bash
@@ -216,6 +265,12 @@ Copy-Item .env.example .env
 docker compose up -d --build
 ```
 
+To build and start ACP + WebSocket adapter together:
+
+```powershell
+docker compose --profile websocket up -d --build
+```
+
 6. Watch startup logs and complete GitHub device authorization when prompted:
 
 ```powershell
@@ -250,6 +305,12 @@ mkdir -p workspace
 docker compose up --build
 ```
 
+To start both ACP + WebSocket adapter in one command:
+
+```bash
+docker compose --profile websocket up --build
+```
+
 4. ACP server will listen on:
 
 ```text
@@ -271,6 +332,11 @@ To stop services:
 docker compose down
 ```
 
+Profile note:
+
+- The `websocket-adapter` service is attached to the `websocket` profile.
+- Use `docker compose --profile websocket ...` when you want the extra adapter container.
+
 ## Configuration
 
 All runtime values are environment variables loaded from `.env`.
@@ -284,6 +350,7 @@ All runtime values are environment variables loaded from `.env`.
 | `ACP_DISALLOW_TEMP_DIR` | `true` | Adds `--disallow-temp-dir` when true. |
 | `ACP_DISABLE_BUILTIN_MCPS` | `true` | Adds `--disable-builtin-mcps` when true. |
 | `ACP_REQUIRE_LOGIN` | `true` | When true, container startup runs `copilot login` first, prints GitHub device-flow code/instructions, and starts ACP only after successful authorization. |
+| `ACP_AUTH_METHOD_ID` | _unset_ | Optional ACP auth method id used by `ask-acp.sh` to call `authenticate` after `initialize` and before `session/new`. |
 | `COPILOT_GITHUB_TOKEN` | _unset_ | Optional GitHub token auth, including fine-grained PATs with the required Copilot access. When set, startup skips device sign-in and uses the token instead. |
 | `GH_TOKEN` | _unset_ | Optional GitHub token auth, including fine-grained PATs with the required Copilot access. Same behavior as `COPILOT_GITHUB_TOKEN`. |
 | `GITHUB_TOKEN` | _unset_ | Optional GitHub token auth, including fine-grained PATs with the required Copilot access. Same behavior as `COPILOT_GITHUB_TOKEN`. |
@@ -293,6 +360,12 @@ All runtime values are environment variables loaded from `.env`.
 | `ACP_BIND_ALL_INTERFACES` | `true` | When true, startup uses `socat` to open `0.0.0.0:$ACP_PORT` and forward to Copilot's loopback listener. |
 | `ACP_INTERNAL_PORT` | `3001` | Internal loopback port used by Copilot when interface binding proxy mode is enabled. |
 | `ACP_BOOTSTRAP_DEFAULT_AGENT` | `true` | When `ACP_AGENT=ACP-Chatbot`, startup writes a sample `ACP-Chatbot.agent.md` into `$ACP_WORKDIR/.github/agents/` if missing, so the custom agent is always available. |
+| `ACP_WEBSOCKET_PORT` | _unset_ | Optional host WebSocket listen port used by `start-websocket-proxy.sh` for ACP over WebSocket. |
+| `WEBSOCKET_TOKEN` | _unset_ | Required Basic auth password used by `start-websocket-proxy.sh`; set a long random secret. |
+| `WEBSOCKET_USER` | `token` | Optional Basic auth username used by `start-websocket-proxy.sh`. |
+| `ACP_WEBSOCKET_TARGET_HOST` | `127.0.0.1` | ACP TCP host target used by the adapter container. |
+| `ACP_WEBSOCKET_CONTAINER_NAME` | `acp-websocket-proxy` | Optional Docker container name used by `start-websocket-proxy.sh`. |
+| `ACP_WEBSOCKET_ADAPTER_IMAGE` | `acp-websocket-adapter:local` | Docker image tag used by `start-websocket-proxy.sh` for the custom adapter. |
 
 Login output note:
 
@@ -307,6 +380,77 @@ Example token auth setup:
 export COPILOT_GITHUB_TOKEN="<your-token>"
 ./start-acp.sh
 ```
+
+Example built-in ACP auth method test from client:
+
+```bash
+export ACP_AUTH_METHOD_ID="agent-login"
+./ask-acp.sh --question "Say your agent name in one sentence."
+```
+
+When `ACP_AUTH_METHOD_ID` is set, `ask-acp.sh` and `ask-acp.ps1` run:
+
+1. `initialize`
+2. `authenticate` (with the configured method id)
+3. `session/new`
+4. `session/prompt`
+5. `logout` (when `agentCapabilities.auth.logout` is advertised)
+
+## WebSocket Adapter (Docker)
+
+For full endpoint/client details, see [Readme-Websocket.md](Readme-Websocket.md).
+
+You can expose ACP over WebSocket using the repository's custom adapter running in a separate Docker container.
+
+1. Set proxy values in `.env`:
+
+```dotenv
+ACP_WEBSOCKET_PORT=8081
+WEBSOCKET_TOKEN=<long-random-secret>
+WEBSOCKET_USER=token
+ACP_WEBSOCKET_TARGET_HOST=127.0.0.1
+```
+
+2. Start ACP server normally:
+
+```bash
+docker compose up -d --build
+```
+
+Or run both ACP + adapter in one command:
+
+```bash
+docker compose --profile websocket up -d --build
+```
+
+3. Start WebSocket adapter:
+
+```bash
+./start-websocket-proxy.sh
+```
+
+4. Test adapter auth and ACP initialize using `.env` values:
+
+```bash
+./test-websocket-proxy.sh
+```
+
+5. Connect WebSocket client to:
+
+```text
+ws://<host>:8081
+```
+
+Auth credentials:
+
+- Username: `WEBSOCKET_USER` (default `token`)
+- Password: `WEBSOCKET_TOKEN`
+
+Notes:
+
+- This is a raw TCP-to-WebSocket bridge. The client still needs to speak ACP JSON-RPC over the WebSocket stream.
+- The launcher uses `--network host`, which is Linux-host oriented.
+- The first launch auto-builds a local image from `Dockerfile.websocket-adapter`.
 
 ## Authentication Modes
 
@@ -344,8 +488,7 @@ Token precedence:
 Custom agent:
 
 - `ACP-Chatbot` is the default startup/client agent.
-- Startup also bootstraps `ACP-Chatbot` into `$ACP_WORKDIR/.github/agents/ACP-Chatbot.agent.md` when missing, using a sample system prompt.
-- A repository sample template is included at [.github/agents/ACP-Chatbot.agent.md](.github/agents/ACP-Chatbot.agent.md).
+- Startup syncs `ACP-Chatbot` from [ACP-Chatbot.agent.md](ACP-Chatbot.agent.md) into `$ACP_WORKDIR/.github/agents/ACP-Chatbot.agent.md` when needed.
 
 Linux equivalent:
 
@@ -356,6 +499,52 @@ Example:
 ```bash
 ./ask-acp.sh --question "What is the capital of France?"
 ```
+
+Session resume by optional session id (TCP client):
+
+```bash
+./ask-acp.sh --session-id "<existing-session-id>" --question "Continue from before"
+```
+
+```powershell
+./ask-acp.ps1 -SessionId "<existing-session-id>" -Question "Continue from before"
+```
+
+WebSocket client scripts:
+
+- [ask-acp-websocket.sh](ask-acp-websocket.sh) runs ACP over the WebSocket adapter from Linux/macOS.
+- [ask-acp-websocket.ps1](ask-acp-websocket.ps1) runs ACP over the WebSocket adapter from PowerShell.
+
+Examples:
+
+```bash
+./ask-acp-websocket.sh --question "What is the capital of France?"
+```
+
+```bash
+./ask-acp-websocket.sh --session-id "<existing-session-id>" --question "Continue from before"
+```
+
+```powershell
+./ask-acp-websocket.ps1 -Question "What is the capital of France?"
+```
+
+```powershell
+./ask-acp-websocket.ps1 -SessionId "<existing-session-id>" -Question "Continue from before"
+```
+
+Session behavior:
+
+- If `session-id` is provided, the client first tries `session/load` when the server advertises `agentCapabilities.loadSession`.
+- The client then tries `session/resume` for ACP runtimes that implement that method.
+- If both resume/load attempts fail, the client automatically falls back to `session/new`.
+- The ACP server does not auto-fallback from `session/load` or `session/resume` to `session/new`; it returns an error and the client decides whether to create a new session.
+- The client does not persist or manage session lifecycle metadata locally.
+
+One-shot output fields:
+
+- `effectiveSessionId`: the session id actually used for the prompt (loaded/resumed id or newly created id).
+- `sessionMode`: returned only when input `session-id` was provided, with value `resumed` or `new`.
 
 ## Build image only
 
@@ -370,6 +559,7 @@ This repository includes a publish workflow at [.github/workflows/publish-image.
 What it does:
 
 - Builds and pushes `ghcr.io/<owner>/<repo>` on every push to `main`
+- Builds and pushes `ghcr.io/<owner>/<repo>-websocket-adapter` on every push to `main`
 - Pushes version tags (for example `v1.0.0`) when you push git tags
 - Maintains `latest` for the default branch
 
@@ -390,6 +580,7 @@ git push origin main --tags
 
 ```bash
 docker pull ghcr.io/cliffzhu/github-copilot-acp-container-server:latest
+docker pull ghcr.io/cliffzhu/github-copilot-acp-container-server-websocket-adapter:latest
 ```
 
 ## Deploy directly to serverless container apps

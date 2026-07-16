@@ -12,3 +12,23 @@ services:
       - ./workspace:/workspace
       - ./copilot-home:/root/.copilot
     restart: unless-stopped
+
+  websocket-adapter:
+    build:
+      context: .
+      dockerfile: Dockerfile.websocket-adapter
+    image: acp-websocket-adapter:local
+    env_file:
+      - .env
+    environment:
+      ACP_PORT: ${ACP_PORT:-3000}
+      ACP_WEBSOCKET_PORT: ${ACP_WEBSOCKET_PORT:-8080}
+      ACP_WEBSOCKET_TARGET_HOST: ${ACP_WEBSOCKET_TARGET_HOST:-127.0.0.1}
+      WEBSOCKET_USER: ${WEBSOCKET_USER:-token}
+      WEBSOCKET_TOKEN: ${WEBSOCKET_TOKEN:-change-me-before-production}
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      - acp-server
+    profiles:
+      - websocket
