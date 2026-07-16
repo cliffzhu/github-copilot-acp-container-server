@@ -25,6 +25,29 @@ copilot --acp --port <ACP_PORT> -C <ACP_WORKDIR> --agent <ACP_AGENT> --available
 - Docker 24+ (for container workflows)
 - Docker Compose v2
 
+## Terminal Baseline (Match This VM)
+
+To run with the same terminal behavior as this VM, use a Linux POSIX shell with plain/no-color output:
+
+```bash
+export TERM=dumb
+export NO_COLOR=1
+export BUILDKIT_PROGRESS=plain
+```
+
+Run project commands from `sh` (not PowerShell/cmd), for example:
+
+```bash
+sh -lc 'docker compose up -d --build'
+sh -lc 'docker compose logs -f acp-server'
+```
+
+For in-container diagnostics, keep the same shell style:
+
+```bash
+sudo docker exec -i github-copilot-acp-container-server-acp-server-1 sh -lc 'copilot --version'
+```
+
 For native host run (without Docker), see Native Linux Run below.
 
 ## Native Linux Run (No Docker)
