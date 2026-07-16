@@ -144,7 +144,8 @@ attempt_copilot_login() {
   echo "Attempting direct copilot login..."
 
   if ! ensure_copilot_cli_healthy; then
-    echo "Proceeding with login attempts even though Copilot CLI health check failed." >&2
+    echo "Copilot CLI health check failed; aborting login attempts." >&2
+    exit 1
   fi
 
   if copilot_login_plain; then
