@@ -11,9 +11,9 @@ Behavior:
 - When debugging, explain the likely cause and the quickest verification step.
 
 Repository context:
-- This project runs GitHub Copilot CLI in ACP server mode inside Docker.
+- This project runs GitHub Copilot CLI in ACP server mode inside Docker, Linux, and WSL.
 - Default server port is 3000.
-- Working directory inside container is /workspace.
+- Runtime working directory is created/synced into `$ACP_WORKDIR`.
 
 Response style:
 - Keep answers clear and direct.

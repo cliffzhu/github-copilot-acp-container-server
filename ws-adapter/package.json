@@ -1,0 +1,11 @@
+{
+  "name": "acp-websocket-adapter",
+  "version": "1.0.0",
+  "private": true,
+  "description": "WebSocket to ACP TCP adapter with basic auth",
+  "main": "adapter.js",
+  "license": "MIT",
+  "dependencies": {
+    "ws": "^8.18.3"
+  }
+}

@@ -12,6 +12,7 @@ RUN npm install -g @github/copilot@latest
 RUN mkdir -p /workspace
 
 COPY start-acp.sh /usr/local/bin/start-acp.sh
+COPY ACP-Chatbot.agent.md /usr/local/bin/ACP-Chatbot.agent.md
 RUN chmod +x /usr/local/bin/start-acp.sh
 
 EXPOSE 3000
