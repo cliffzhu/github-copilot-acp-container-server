@@ -10,6 +10,7 @@ ACP_DISABLE_BUILTIN_MCPS="${ACP_DISABLE_BUILTIN_MCPS:-true}"
 ACP_REQUIRE_LOGIN="${ACP_REQUIRE_LOGIN:-true}"
 ACP_LOGIN_STORE_PLAINTEXT="${ACP_LOGIN_STORE_PLAINTEXT:-true}"
 ACP_LOGIN_USE_EXPECT="${ACP_LOGIN_USE_EXPECT:-false}"
+ACP_COPILOT_SELF_HEAL="${ACP_COPILOT_SELF_HEAL:-true}"
 ACP_BIND_ALL_INTERFACES="${ACP_BIND_ALL_INTERFACES:-true}"
 ACP_INTERNAL_PORT="${ACP_INTERNAL_PORT:-3001}"
 ACP_BOOTSTRAP_DEFAULT_AGENT="${ACP_BOOTSTRAP_DEFAULT_AGENT:-true}"
@@ -18,12 +19,52 @@ if ! command -v copilot >/dev/null 2>&1; then
   echo "copilot command not found. Ensure @github/copilot is installed." >&2
   exit 1
 fi
-ACP_COPILOT_SELF_HEAL="${ACP_COPILOT_SELF_HEAL:-true}"
 
-if [ ! -d "$ACP_WORKDIR" ]; then
-  echo "ACP working directory does not exist: $ACP_WORKDIR" >&2
-  exit 1
-fi
+# Guard to avoid repeated npm reinstall attempts during auth retry loops.
+COPILOT_SELF_HEAL_ATTEMPTED=0
+
+require_command() {
+  cmd="$1"
+  hint="$2"
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    echo "Missing required command: $cmd" >&2
+    echo "$hint" >&2
+    return 1
+  fi
+}
+
+ensure_workdir_ready() {
+  if [ ! -d "$ACP_WORKDIR" ]; then
+    echo "ACP working directory does not exist. Creating: $ACP_WORKDIR"
+    if ! mkdir -p "$ACP_WORKDIR"; then
+      echo "Failed to create ACP working directory: $ACP_WORKDIR" >&2
+      return 1
+    fi
+  fi
+
+  if [ ! -w "$ACP_WORKDIR" ]; then
+    echo "ACP working directory is not writable: $ACP_WORKDIR" >&2
+    return 1
+  fi
+}
+
+preflight_startup() {
+  require_command node "Install Node.js (required by Copilot CLI wrapper)." || return 1
+  ensure_workdir_ready || return 1
+
+  if [ "$ACP_BIND_ALL_INTERFACES" = "true" ]; then
+    require_command socat "Install socat or set ACP_BIND_ALL_INTERFACES=false for loopback-only mode." || return 1
+  fi
+
+  if [ "$ACP_COPILOT_SELF_HEAL" = "true" ] && ! command -v npm >/dev/null 2>&1; then
+    echo "npm is not available; disabling ACP_COPILOT_SELF_HEAL for this run." >&2
+    ACP_COPILOT_SELF_HEAL=false
+  fi
+
+  if [ "$ACP_LOGIN_STORE_PLAINTEXT" = "true" ] && ! command -v script >/dev/null 2>&1; then
+    echo "Info: 'script' command not found; plaintext-prompt automation fallback is unavailable." >&2
+  fi
+}
 
 has_auth_token_env() {
   [ -n "${COPILOT_GITHUB_TOKEN:-}" ] || [ -n "${GH_TOKEN:-}" ] || [ -n "${GITHUB_TOKEN:-}" ]
@@ -82,7 +123,8 @@ ensure_copilot_cli_healthy() {
 
   echo "Copilot CLI health check failed (uname -m: $(uname -m), node arch: $(node -p 'process.arch' 2>/dev/null || echo unknown))." >&2
 
-  if [ "$ACP_COPILOT_SELF_HEAL" = "true" ]; then
+  if [ "$ACP_COPILOT_SELF_HEAL" = "true" ] && [ "$COPILOT_SELF_HEAL_ATTEMPTED" -eq 0 ]; then
+    COPILOT_SELF_HEAL_ATTEMPTED=1
     if repair_copilot_cli && copilot_cli_healthy; then
       echo "Copilot CLI self-heal succeeded."
       return 0
@@ -101,9 +143,10 @@ attempt_copilot_login() {
   # Prefer direct login to keep device-code output intact and avoid TTY shim issues.
   echo "Attempting direct copilot login..."
 
-if ! ensure_copilot_cli_healthy; then
-  exit 1
-fi
+  if ! ensure_copilot_cli_healthy; then
+    echo "Proceeding with login attempts even though Copilot CLI health check failed." >&2
+  fi
+
   if copilot_login_plain; then
     return 0
   fi
@@ -218,6 +261,10 @@ echo "Working directory: $ACP_WORKDIR"
 echo "Port: $ACP_PORT"
 echo "Agent: $ACP_AGENT"
 echo "Available tools: $ACP_AVAILABLE_TOOLS"
+
+if ! preflight_startup; then
+  exit 1
+fi
 
 if [ "$ACP_BIND_ALL_INTERFACES" = "true" ]; then
   echo "Public bind mode: enabled (0.0.0.0:$ACP_PORT -> 127.0.0.1:$ACP_INTERNAL_PORT)"
