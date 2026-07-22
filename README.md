@@ -7,7 +7,8 @@ The container runs the real `copilot --acp` server process. It does not proxy re
 Reference concept for Windows is in [start-acp.ps1](start-acp.ps1). Linux/container startup is implemented by [start-acp.sh](start-acp.sh).
 Windows via WSL is supported by [start-acp-wsl.ps1](start-acp-wsl.ps1) and the same [start-acp.sh](start-acp.sh) bootstrap script.
 
-The default agent template now lives next to [.env](.env) as [ACP-Chatbot.agent.md](ACP-Chatbot.agent.md) and is synced into the runtime workdir on startup.
+The default agent template can be overridden by placing [ACP-Chatbot.agent.local.md](ACP-Chatbot.agent.local.md) in the runtime workspace and it is synced into [workspace/.github/agents/ACP-Chatbot.agent.md](workspace/.github/agents/ACP-Chatbot.agent.md) on startup.
+Create it with a copy command, similar to creating `.env` from `.env.example`.
 
 ## What starts in the container
 
@@ -112,6 +113,8 @@ Quick start from Windows PowerShell:
 git clone https://github.com/cliffzhu/github-copilot-acp-container-server.git
 cd github-copilot-acp-container-server
 Copy-Item .env.example .env
+New-Item -ItemType Directory -Force -Path workspace | Out-Null
+Copy-Item ACP-Chatbot.agent.md workspace/ACP-Chatbot.agent.local.md
 .\start-acp-wsl.ps1
 ```
 
@@ -120,6 +123,8 @@ Or run the same project directly from inside WSL:
 ```bash
 cd /path/to/github-copilot-acp-container-server
 cp .env.example .env
+mkdir -p workspace
+cp ACP-Chatbot.agent.md workspace/ACP-Chatbot.agent.local.md
 ./start-acp.sh
 ```
 
@@ -127,7 +132,7 @@ WSL notes:
 
 - The startup script now reads a repo-local `.env` when present.
 - If `/workspace` is not available, the startup script defaults `ACP_WORKDIR` to `<repo>/workspace`.
-- The default agent template is sourced from the project root file [ACP-Chatbot.agent.md](ACP-Chatbot.agent.md) and synced into `$ACP_WORKDIR/.github/agents/ACP-Chatbot.agent.md` at startup.
+- The default local override template path is `$ACP_WORKDIR/ACP-Chatbot.agent.local.md` and it is synced into `$ACP_WORKDIR/.github/agents/ACP-Chatbot.agent.md` at startup.
 - Use `ACP_BIND_ALL_INTERFACES=false` for loopback-only mode, or `true` if you want the WSL process to bind publicly on the port.
 
 ## Native Linux Run (No Docker)
@@ -205,6 +210,7 @@ mkdir -p workspace copilot-home
 
 ```bash
 cp .env.example .env
+cp ACP-Chatbot.agent.md workspace/ACP-Chatbot.agent.local.md
 ```
 
 5. Build and start the ACP container:
@@ -257,6 +263,7 @@ New-Item -ItemType Directory -Force -Path workspace, copilot-home | Out-Null
 
 ```powershell
 Copy-Item .env.example .env
+Copy-Item ACP-Chatbot.agent.md workspace/ACP-Chatbot.agent.local.md
 ```
 
 5. Build and start the ACP container:
@@ -294,6 +301,7 @@ Expected outcome:
 
 ```bash
 cp .env.example .env
+cp ACP-Chatbot.agent.md workspace/ACP-Chatbot.agent.local.md
 ```
 
 2. Optional: adjust `.env` values (agent name, tool allow-list, port).
@@ -359,7 +367,7 @@ All runtime values are environment variables loaded from `.env`.
 | `ACP_COPILOT_SELF_HEAL` | `true` | On startup, runs a Copilot CLI health check and performs a one-time `@github/copilot` reinstall if the native binary fails to execute on that VM. |
 | `ACP_BIND_ALL_INTERFACES` | `true` | When true, startup uses `socat` to open `0.0.0.0:$ACP_PORT` and forward to Copilot's loopback listener. |
 | `ACP_INTERNAL_PORT` | `3001` | Internal loopback port used by Copilot when interface binding proxy mode is enabled. |
-| `ACP_BOOTSTRAP_DEFAULT_AGENT` | `true` | When `ACP_AGENT=ACP-Chatbot`, startup writes a sample `ACP-Chatbot.agent.md` into `$ACP_WORKDIR/.github/agents/` if missing, so the custom agent is always available. |
+| `ACP_BOOTSTRAP_DEFAULT_AGENT` | `true` | When `ACP_AGENT=ACP-Chatbot`, startup syncs `$ACP_WORKDIR/ACP-Chatbot.agent.local.md` into `$ACP_WORKDIR/.github/agents/ACP-Chatbot.agent.md` when present; otherwise it uses the built-in image template. |
 | `ACP_WEBSOCKET_SERVER_ENABLED` | `false` | Turns the built-in WebSocket proxy ON/OFF inside the same ACP container. Accepts values like `true/false`, `on/off`, `1/0`. |
 | `ACP_WEBSOCKET_PORT` | `8080` | WebSocket listen port when proxy is enabled. |
 | `WEBSOCKET_TOKEN` | _unset_ | Required Basic auth password when WebSocket proxy is enabled; set a long random secret. |
@@ -476,7 +484,7 @@ Token precedence:
 Custom agent:
 
 - `ACP-Chatbot` is the default startup/client agent.
-- Startup syncs `ACP-Chatbot` from [ACP-Chatbot.agent.md](ACP-Chatbot.agent.md) into `$ACP_WORKDIR/.github/agents/ACP-Chatbot.agent.md` when needed.
+- Startup syncs `ACP-Chatbot` from `$ACP_WORKDIR/ACP-Chatbot.agent.local.md` into `$ACP_WORKDIR/.github/agents/ACP-Chatbot.agent.md` when needed.
 
 Linux equivalent:
 
