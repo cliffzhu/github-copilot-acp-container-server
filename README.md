@@ -2,7 +2,19 @@
 
 Container launcher for GitHub Copilot CLI in ACP server mode.
 
-The container runs the real `copilot --acp` server process. It does not proxy requests through a custom Express server.
+This project packages the real `copilot --acp` runtime in an isolated container deployment model for consistent startup, auth flow, and operations across Linux, Docker, and WSL.
+
+## Why This Project
+
+- Containerized ACP runtime: run Copilot ACP in an isolated, reproducible environment with explicit runtime controls.
+- Dual transport connectivity: expose ACP over raw TCP and optionally over WebSocket from the same container.
+- ACP-native session flow: clients use ACP JSON-RPC methods (`initialize`, `session/new`, `session/prompt`, `session/load`/`session/resume`) without an extra custom app server layer.
+- Ops-ready bootstrap: built-in startup checks, auth bootstrapping, workspace sync, and optional public bind mode for remote clients.
+
+Transport terminology used in this README:
+
+- ACP over TCP: direct socket endpoint (default).
+- ACP over WebSocket: protocol bridge endpoint for ACP JSON-RPC over WebSocket.
 
 Reference concept for Windows is in [start-acp.ps1](start-acp.ps1). Linux/container startup is implemented by [start-acp.sh](start-acp.sh).
 Windows via WSL is supported by [start-acp-wsl.ps1](start-acp-wsl.ps1) and the same [start-acp.sh](start-acp.sh) bootstrap script.
