@@ -38,10 +38,10 @@ Docker Compose:
 BUILDKIT_PROGRESS=plain NO_COLOR=1 TERM=dumb docker compose up -d --build
 ```
 
-Docker Compose with WebSocket adapter (builds and runs both images):
+Docker Compose with WebSocket enabled in the same container:
 
 ```bash
-BUILDKIT_PROGRESS=plain NO_COLOR=1 TERM=dumb docker compose --profile websocket up -d --build
+ACP_WEBSOCKET_SERVER_ENABLED=true ACP_WEBSOCKET_PORT=8080 WEBSOCKET_TOKEN="<long-random-secret>" BUILDKIT_PROGRESS=plain NO_COLOR=1 TERM=dumb docker compose up -d --build
 ```
 
 WSL from Windows PowerShell:
@@ -62,10 +62,10 @@ If you want public bind mode on Linux or WSL, use:
 ACP_BIND_ALL_INTERFACES=true ./start-acp.sh
 ```
 
-WebSocket adapter (custom bridge in Docker):
+WebSocket endpoint helper (same consolidated Docker image):
 
 ```bash
-ACP_WEBSOCKET_PORT=8081 WEBSOCKET_TOKEN="<long-random-secret>" ./start-websocket-proxy.sh
+ACP_WEBSOCKET_PORT=8080 WEBSOCKET_TOKEN="<long-random-secret>" ./start-websocket-proxy.sh
 ```
 
 ## Terminal Baseline (Match This VM)
@@ -213,10 +213,10 @@ cp .env.example .env
 BUILDKIT_PROGRESS=plain NO_COLOR=1 TERM=dumb docker compose up -d --build
 ```
 
-To build and start ACP + WebSocket adapter together:
+To build and start ACP with built-in WebSocket proxy enabled:
 
 ```bash
-BUILDKIT_PROGRESS=plain NO_COLOR=1 TERM=dumb docker compose --profile websocket up -d --build
+ACP_WEBSOCKET_SERVER_ENABLED=true ACP_WEBSOCKET_PORT=8080 WEBSOCKET_TOKEN="<long-random-secret>" BUILDKIT_PROGRESS=plain NO_COLOR=1 TERM=dumb docker compose up -d --build
 ```
 
 6. Watch startup logs and complete GitHub device authorization when prompted:
@@ -265,10 +265,10 @@ Copy-Item .env.example .env
 docker compose up -d --build
 ```
 
-To build and start ACP + WebSocket adapter together:
+To build and start ACP with built-in WebSocket proxy enabled:
 
 ```powershell
-docker compose --profile websocket up -d --build
+$env:ACP_WEBSOCKET_SERVER_ENABLED="true"; $env:ACP_WEBSOCKET_PORT="8080"; $env:WEBSOCKET_TOKEN="<long-random-secret>"; docker compose up -d --build
 ```
 
 6. Watch startup logs and complete GitHub device authorization when prompted:
@@ -305,10 +305,10 @@ mkdir -p workspace
 docker compose up --build
 ```
 
-To start both ACP + WebSocket adapter in one command:
+To start ACP with built-in WebSocket proxy in one command:
 
 ```bash
-docker compose --profile websocket up --build
+ACP_WEBSOCKET_SERVER_ENABLED=true ACP_WEBSOCKET_PORT=8080 WEBSOCKET_TOKEN="<long-random-secret>" docker compose up --build
 ```
 
 4. ACP server will listen on:
@@ -332,10 +332,10 @@ To stop services:
 docker compose down
 ```
 
-Profile note:
+WebSocket note:
 
-- The `websocket-adapter` service is attached to the `websocket` profile.
-- Use `docker compose --profile websocket ...` when you want the extra adapter container.
+- The `acp-server` service can run with or without the built-in WebSocket proxy.
+- Set `ACP_WEBSOCKET_SERVER_ENABLED=true` and a non-empty `WEBSOCKET_TOKEN` to turn it on.
 
 ## Configuration
 
@@ -360,12 +360,12 @@ All runtime values are environment variables loaded from `.env`.
 | `ACP_BIND_ALL_INTERFACES` | `true` | When true, startup uses `socat` to open `0.0.0.0:$ACP_PORT` and forward to Copilot's loopback listener. |
 | `ACP_INTERNAL_PORT` | `3001` | Internal loopback port used by Copilot when interface binding proxy mode is enabled. |
 | `ACP_BOOTSTRAP_DEFAULT_AGENT` | `true` | When `ACP_AGENT=ACP-Chatbot`, startup writes a sample `ACP-Chatbot.agent.md` into `$ACP_WORKDIR/.github/agents/` if missing, so the custom agent is always available. |
-| `ACP_WEBSOCKET_PORT` | _unset_ | Optional host WebSocket listen port used by `start-websocket-proxy.sh` for ACP over WebSocket. |
-| `WEBSOCKET_TOKEN` | _unset_ | Required Basic auth password used by `start-websocket-proxy.sh`; set a long random secret. |
-| `WEBSOCKET_USER` | `token` | Optional Basic auth username used by `start-websocket-proxy.sh`. |
-| `ACP_WEBSOCKET_TARGET_HOST` | `127.0.0.1` | ACP TCP host target used by the adapter container. |
-| `ACP_WEBSOCKET_CONTAINER_NAME` | `acp-websocket-proxy` | Optional Docker container name used by `start-websocket-proxy.sh`. |
-| `ACP_WEBSOCKET_ADAPTER_IMAGE` | `acp-websocket-adapter:local` | Docker image tag used by `start-websocket-proxy.sh` for the custom adapter. |
+| `ACP_WEBSOCKET_SERVER_ENABLED` | `false` | Turns the built-in WebSocket proxy ON/OFF inside the same ACP container. Accepts values like `true/false`, `on/off`, `1/0`. |
+| `ACP_WEBSOCKET_PORT` | `8080` | WebSocket listen port when proxy is enabled. |
+| `WEBSOCKET_TOKEN` | _unset_ | Required Basic auth password when WebSocket proxy is enabled; set a long random secret. |
+| `WEBSOCKET_USER` | `token` | Optional Basic auth username used by the built-in WebSocket proxy. |
+| `ACP_WEBSOCKET_TARGET_HOST` | `127.0.0.1` | Internal ACP TCP host target used by the built-in adapter. |
+| `ACP_WEBSOCKET_TARGET_PORT` | _unset_ | Optional explicit ACP TCP target port override for the built-in adapter (defaults to ACP internal runtime port). |
 
 Login output note:
 
@@ -396,49 +396,38 @@ When `ACP_AUTH_METHOD_ID` is set, `ask-acp.sh` and `ask-acp.ps1` run:
 4. `session/prompt`
 5. `logout` (when `agentCapabilities.auth.logout` is advertised)
 
-## WebSocket Adapter (Docker)
+## WebSocket Endpoint (Single Container)
 
 For full endpoint/client details, see [Readme-Websocket.md](Readme-Websocket.md).
 
-You can expose ACP over WebSocket using the repository's custom adapter running in a separate Docker container.
+You can expose ACP over WebSocket using the repository's built-in adapter in the same Docker container.
 
 1. Set proxy values in `.env`:
 
 ```dotenv
-ACP_WEBSOCKET_PORT=8081
+ACP_WEBSOCKET_SERVER_ENABLED=true
+ACP_WEBSOCKET_PORT=8080
 WEBSOCKET_TOKEN=<long-random-secret>
 WEBSOCKET_USER=token
 ACP_WEBSOCKET_TARGET_HOST=127.0.0.1
 ```
 
-2. Start ACP server normally:
+2. Start ACP server:
 
 ```bash
 docker compose up -d --build
 ```
 
-Or run both ACP + adapter in one command:
-
-```bash
-docker compose --profile websocket up -d --build
-```
-
-3. Start WebSocket adapter:
-
-```bash
-./start-websocket-proxy.sh
-```
-
-4. Test adapter auth and ACP initialize using `.env` values:
+3. Test adapter auth and ACP initialize using `.env` values:
 
 ```bash
 ./test-websocket-proxy.sh
 ```
 
-5. Connect WebSocket client to:
+4. Connect WebSocket client to:
 
 ```text
-ws://<host>:8081
+ws://<host>:8080
 ```
 
 Auth credentials:
@@ -449,8 +438,7 @@ Auth credentials:
 Notes:
 
 - This is a raw TCP-to-WebSocket bridge. The client still needs to speak ACP JSON-RPC over the WebSocket stream.
-- The launcher uses `--network host`, which is Linux-host oriented.
-- The first launch auto-builds a local image from `Dockerfile.websocket-adapter`.
+- The adapter runs in the same container as ACP and is started by `start-acp.sh` only when `ACP_WEBSOCKET_SERVER_ENABLED=true`.
 
 ## Authentication Modes
 
@@ -514,6 +502,8 @@ WebSocket client scripts:
 
 - [ask-acp-websocket.sh](ask-acp-websocket.sh) runs ACP over the WebSocket adapter from Linux/macOS.
 - [ask-acp-websocket.ps1](ask-acp-websocket.ps1) runs ACP over the WebSocket adapter from PowerShell.
+- Both websocket client scripts connect directly to the websocket endpoint and do not build/run Docker images locally.
+- Docker image build/start remains consolidated in [Dockerfile](Dockerfile); [start-websocket-proxy.sh](start-websocket-proxy.sh) is an optional helper that starts the same unified image with websocket enabled.
 
 Examples:
 
@@ -559,7 +549,6 @@ This repository includes a publish workflow at [.github/workflows/publish-image.
 What it does:
 
 - Builds and pushes `ghcr.io/<owner>/<repo>` on every push to `main`
-- Builds and pushes `ghcr.io/<owner>/<repo>-websocket-adapter` on every push to `main`
 - Pushes version tags (for example `v1.0.0`) when you push git tags
 - Maintains `latest` for the default branch
 
@@ -580,7 +569,6 @@ git push origin main --tags
 
 ```bash
 docker pull ghcr.io/cliffzhu/github-copilot-acp-container-server:latest
-docker pull ghcr.io/cliffzhu/github-copilot-acp-container-server-websocket-adapter:latest
 ```
 
 ## Deploy directly to serverless container apps
@@ -611,6 +599,7 @@ Notes for serverless:
 
 - The image now creates `/workspace` internally, so host volume mounts are optional.
 - If your platform supports persistent volume mounts, mounting storage to `/workspace` and `/root/.copilot` can preserve runtime state between restarts.
+- If you enable websocket mode in serverless, expose `ACP_WEBSOCKET_PORT` as an additional container port and set `WEBSOCKET_TOKEN`.
 
 ### Azure Container Apps
 

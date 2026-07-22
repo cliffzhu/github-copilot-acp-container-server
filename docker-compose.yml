@@ -6,29 +6,17 @@ services:
     image: github-copilot-acp-container-server:local
     env_file:
       - .env
+    environment:
+      ACP_WEBSOCKET_SERVER_ENABLED: ${ACP_WEBSOCKET_SERVER_ENABLED:-false}
+      ACP_WEBSOCKET_PORT: ${ACP_WEBSOCKET_PORT:-8080}
+      ACP_WEBSOCKET_TARGET_HOST: ${ACP_WEBSOCKET_TARGET_HOST:-127.0.0.1}
+      ACP_WEBSOCKET_TARGET_PORT: ${ACP_WEBSOCKET_TARGET_PORT:-}
+      WEBSOCKET_USER: ${WEBSOCKET_USER:-token}
+      WEBSOCKET_TOKEN: ${WEBSOCKET_TOKEN:-}
     ports:
       - "3000:3000"
+      - "${ACP_WEBSOCKET_PORT:-8080}:${ACP_WEBSOCKET_PORT:-8080}"
     volumes:
       - ./workspace:/workspace
       - ./copilot-home:/root/.copilot
     restart: unless-stopped
-
-  websocket-adapter:
-    build:
-      context: .
-      dockerfile: Dockerfile.websocket-adapter
-    image: acp-websocket-adapter:local
-    env_file:
-      - .env
-    environment:
-      ACP_PORT: ${ACP_PORT:-3000}
-      ACP_WEBSOCKET_PORT: ${ACP_WEBSOCKET_PORT:-8080}
-      ACP_WEBSOCKET_TARGET_HOST: ${ACP_WEBSOCKET_TARGET_HOST:-127.0.0.1}
-      WEBSOCKET_USER: ${WEBSOCKET_USER:-token}
-      WEBSOCKET_TOKEN: ${WEBSOCKET_TOKEN:-change-me-before-production}
-    network_mode: host
-    restart: unless-stopped
-    depends_on:
-      - acp-server
-    profiles:
-      - websocket

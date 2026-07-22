@@ -31,6 +31,7 @@ QUESTION=""
 INTERACTIVE="false"
 DENY_PERMISSIONS="false"
 SESSION_ID="${ACP_SESSION_ID:-}"
+DEBUG_JSON="${ACP_DEBUG_JSON:-false}"
 
 usage() {
   cat <<EOF
@@ -43,6 +44,7 @@ Options:
   --agent <name>                Agent name to set via session/set_config_option
   --auth-method-id <id>         ACP auth method id for authenticate (optional)
   --session-id <id>             Optional session id to resume (fallback to session/new)
+  --debug-json                  Print raw ACP JSON-RPC request/response payloads to stderr
   --question <text>             One-shot prompt text
   --interactive                 Interactive mode (type /exit to quit)
   --deny-permissions            Respond to permission requests with cancelled
@@ -51,6 +53,7 @@ Options:
 Examples:
   ./ask-acp.sh --question "hello"
   ./ask-acp.sh --session-id <id> --question "continue"
+  ./ask-acp.sh --debug-json --question "hello"
   ./ask-acp.sh --interactive --agent ACP-Chatbot
 EOF
 }
@@ -80,6 +83,10 @@ while [[ $# -gt 0 ]]; do
     --session-id)
       SESSION_ID="${2:-}"
       shift 2
+      ;;
+    --debug-json)
+      DEBUG_JSON="true"
+      shift
       ;;
     --question)
       QUESTION="${2:-}"
@@ -121,6 +128,7 @@ ACP_CWD="$CWD" \
 ACP_AGENT="$AGENT" \
 ACP_AUTH_METHOD_ID="$AUTH_METHOD_ID" \
 ACP_SESSION_ID="$SESSION_ID" \
+ACP_DEBUG_JSON="$DEBUG_JSON" \
 ACP_QUESTION="$QUESTION" \
 ACP_INTERACTIVE="$INTERACTIVE" \
 ACP_DENY_PERMISSIONS="$DENY_PERMISSIONS" \
@@ -137,6 +145,7 @@ const sessionIdInput = (process.env.ACP_SESSION_ID || '').trim();
 const question = process.env.ACP_QUESTION || '';
 const interactive = (process.env.ACP_INTERACTIVE || 'false') === 'true';
 const denyPermissions = (process.env.ACP_DENY_PERMISSIONS || 'false') === 'true';
+const debugJson = (process.env.ACP_DEBUG_JSON || 'false') === 'true';
 const requestTimeoutMs = Number(process.env.ACP_REQUEST_TIMEOUT_MS || '20000');
 
 let nextId = 1;
@@ -147,7 +156,15 @@ let socket = null;
 socket = net.createConnection({ host: serverHost, port });
 socket.setEncoding('utf8');
 
+function tracePayload(direction, payload) {
+  if (!debugJson) {
+    return;
+  }
+  process.stderr.write(`[ACP ${direction}] ${JSON.stringify(payload)}\n`);
+}
+
 function sendJson(payload) {
+  tracePayload('tx', payload);
   socket.write(`${JSON.stringify(payload)}\n`);
 }
 
@@ -215,6 +232,7 @@ socket.on('data', (chunk) => {
     }
     try {
       const msg = JSON.parse(line);
+      tracePayload('rx', msg);
       handleIncoming(msg);
     } catch {
       // Ignore malformed line and keep processing.
@@ -388,7 +406,7 @@ socket.on('connect', async () => {
 
     authenticated = await authenticateIfRequested(initResult);
 
-  const { sessionId, resumed } = await establishSession(initResult);
+    const { sessionId, resumed } = await establishSession(initResult);
 
     const agentPinned = await trySetAgent(sessionId, agent);
 

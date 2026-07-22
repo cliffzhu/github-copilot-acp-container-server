@@ -40,17 +40,6 @@ jobs:
             type=sha
             type=raw,value=latest,enable={{is_default_branch}}
 
-      - name: Extract image metadata (websocket adapter)
-        id: meta_ws
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository }}-websocket-adapter
-          tags: |
-            type=ref,event=branch
-            type=ref,event=tag
-            type=sha
-            type=raw,value=latest,enable={{is_default_branch}}
-
       - name: Build and push (acp server)
         uses: docker/build-push-action@v6
         with:
@@ -58,12 +47,3 @@ jobs:
           push: true
           tags: ${{ steps.meta_server.outputs.tags }}
           labels: ${{ steps.meta_server.outputs.labels }}
-
-      - name: Build and push (websocket adapter)
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: Dockerfile.websocket-adapter
-          push: true
-          tags: ${{ steps.meta_ws.outputs.tags }}
-          labels: ${{ steps.meta_ws.outputs.labels }}

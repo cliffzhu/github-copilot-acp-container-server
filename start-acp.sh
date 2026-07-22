@@ -53,6 +53,13 @@ ACP_INTERNAL_PORT="${ACP_INTERNAL_PORT:-3001}"
 ACP_BOOTSTRAP_DEFAULT_AGENT="${ACP_BOOTSTRAP_DEFAULT_AGENT:-true}"
 ACP_AUTH_METHOD_ID="${ACP_AUTH_METHOD_ID:-}"
 ACP_AGENT_TEMPLATE_SOURCE="${ACP_AGENT_TEMPLATE_SOURCE:-$SCRIPT_DIR/ACP-Chatbot.agent.md}"
+ACP_WEBSOCKET_SERVER_ENABLED="${ACP_WEBSOCKET_SERVER_ENABLED:-false}"
+ACP_WEBSOCKET_PORT="${ACP_WEBSOCKET_PORT:-8080}"
+ACP_WEBSOCKET_TARGET_HOST="${ACP_WEBSOCKET_TARGET_HOST:-127.0.0.1}"
+ACP_WEBSOCKET_TARGET_PORT="${ACP_WEBSOCKET_TARGET_PORT:-}"
+WEBSOCKET_USER="${WEBSOCKET_USER:-token}"
+WEBSOCKET_TOKEN="${WEBSOCKET_TOKEN:-}"
+ACP_WEBSOCKET_ADAPTER_PATH="${ACP_WEBSOCKET_ADAPTER_PATH:-/app/ws-adapter/adapter.js}"
 
 if ! command -v copilot >/dev/null 2>&1; then
   echo "copilot command not found. Ensure @github/copilot is installed." >&2
@@ -61,6 +68,7 @@ fi
 
 # Guard to avoid repeated npm reinstall attempts during auth retry loops.
 COPILOT_SELF_HEAL_ATTEMPTED=0
+ACP_WEBSOCKET_PID=""
 
 require_command() {
   cmd="$1"
@@ -70,6 +78,18 @@ require_command() {
     echo "$hint" >&2
     return 1
   fi
+}
+
+is_enabled() {
+  value="$(echo "$1" | tr '[:upper:]' '[:lower:]')"
+  case "$value" in
+    1|true|yes|on|enabled)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
 }
 
 ensure_workdir_ready() {
@@ -102,6 +122,46 @@ preflight_startup() {
 
   if [ "$ACP_LOGIN_STORE_PLAINTEXT" = "true" ] && ! command -v script >/dev/null 2>&1; then
     echo "Info: 'script' command not found; plaintext-prompt automation fallback is unavailable." >&2
+  fi
+
+  if is_enabled "$ACP_WEBSOCKET_SERVER_ENABLED"; then
+    if [ -z "$WEBSOCKET_TOKEN" ]; then
+      echo "WEBSOCKET_TOKEN is required when ACP_WEBSOCKET_SERVER_ENABLED is true." >&2
+      return 1
+    fi
+
+    if [ ! -f "$ACP_WEBSOCKET_ADAPTER_PATH" ]; then
+      if [ -f "$SCRIPT_DIR/ws-adapter/adapter.js" ]; then
+        ACP_WEBSOCKET_ADAPTER_PATH="$SCRIPT_DIR/ws-adapter/adapter.js"
+      else
+        echo "WebSocket adapter not found: $ACP_WEBSOCKET_ADAPTER_PATH" >&2
+        return 1
+      fi
+    fi
+  fi
+}
+
+start_websocket_adapter() {
+  ws_target_port="$1"
+
+  echo "WebSocket proxy: enabled"
+  echo "WebSocket proxy listen: 0.0.0.0:$ACP_WEBSOCKET_PORT"
+  echo "WebSocket proxy target: ${ACP_WEBSOCKET_TARGET_HOST}:$ws_target_port"
+
+  ACP_WEBSOCKET_PORT="$ACP_WEBSOCKET_PORT" \
+  ACP_WEBSOCKET_TARGET_HOST="$ACP_WEBSOCKET_TARGET_HOST" \
+  ACP_PORT="$ws_target_port" \
+  WEBSOCKET_USER="$WEBSOCKET_USER" \
+  WEBSOCKET_TOKEN="$WEBSOCKET_TOKEN" \
+  node "$ACP_WEBSOCKET_ADAPTER_PATH" &
+
+  ACP_WEBSOCKET_PID=$!
+}
+
+cleanup_background() {
+  if [ -n "$ACP_WEBSOCKET_PID" ]; then
+    kill "$ACP_WEBSOCKET_PID" 2>/dev/null || true
+    wait "$ACP_WEBSOCKET_PID" 2>/dev/null || true
   fi
 }
 
@@ -304,6 +364,11 @@ echo "Available tools: $ACP_AVAILABLE_TOOLS"
 if [ -n "$ACP_AUTH_METHOD_ID" ]; then
   echo "ACP auth method id configured: $ACP_AUTH_METHOD_ID"
 fi
+if is_enabled "$ACP_WEBSOCKET_SERVER_ENABLED"; then
+  echo "WebSocket proxy switch: ON"
+else
+  echo "WebSocket proxy switch: OFF"
+fi
 
 if ! preflight_startup; then
   exit 1
@@ -326,6 +391,24 @@ if [ "$ACP_BIND_ALL_INTERFACES" = "true" ]; then
   COPILOT_PORT="$ACP_INTERNAL_PORT"
 fi
 
+WS_TARGET_PORT="$COPILOT_PORT"
+if [ -n "$ACP_WEBSOCKET_TARGET_PORT" ]; then
+  WS_TARGET_PORT="$ACP_WEBSOCKET_TARGET_PORT"
+fi
+
+if is_enabled "$ACP_WEBSOCKET_SERVER_ENABLED"; then
+  ws_target_host_lc="$(echo "$ACP_WEBSOCKET_TARGET_HOST" | tr '[:upper:]' '[:lower:]')"
+  if [ "$WS_TARGET_PORT" = "$ACP_WEBSOCKET_PORT" ] && [ "$ws_target_host_lc" = "127.0.0.1" -o "$ws_target_host_lc" = "localhost" ]; then
+    echo "Invalid websocket upstream: ACP_WEBSOCKET_TARGET_HOST/PORT points to the adapter itself (${ACP_WEBSOCKET_TARGET_HOST}:${ACP_WEBSOCKET_PORT})." >&2
+    echo "For same-container mode, use ACP_WEBSOCKET_TARGET_HOST=127.0.0.1 and ACP_WEBSOCKET_TARGET_PORT=$COPILOT_PORT." >&2
+    exit 1
+  fi
+fi
+
+if is_enabled "$ACP_WEBSOCKET_SERVER_ENABLED"; then
+  start_websocket_adapter "$WS_TARGET_PORT"
+fi
+
 set -- copilot --acp --port "$COPILOT_PORT" -C "$ACP_WORKDIR" --agent "$ACP_AGENT" --available-tools="$ACP_AVAILABLE_TOOLS"
 
 if [ "$ACP_DISALLOW_TEMP_DIR" = "true" ]; then
@@ -337,6 +420,8 @@ if [ "$ACP_DISABLE_BUILTIN_MCPS" = "true" ]; then
 fi
 
 if [ "$ACP_BIND_ALL_INTERFACES" = "true" ]; then
+  trap cleanup_background EXIT INT TERM
+
   socat "TCP-LISTEN:${ACP_PORT},bind=0.0.0.0,reuseaddr,fork" "TCP:127.0.0.1:${COPILOT_PORT}" &
   SOCAT_PID=$!
   "$@" &
@@ -346,7 +431,12 @@ if [ "$ACP_BIND_ALL_INTERFACES" = "true" ]; then
   EXIT_CODE=$?
   kill "$SOCAT_PID" 2>/dev/null || true
   wait "$SOCAT_PID" 2>/dev/null || true
+  cleanup_background
   exit "$EXIT_CODE"
+fi
+
+if [ -n "$ACP_WEBSOCKET_PID" ]; then
+  trap cleanup_background EXIT INT TERM
 fi
 
 exec "$@"

@@ -34,7 +34,6 @@ AUTH_METHOD_ID="${ACP_AUTH_METHOD_ID:-}"
 QUESTION=""
 INTERACTIVE="false"
 DENY_PERMISSIONS="false"
-ADAPTER_IMAGE="${ACP_WEBSOCKET_ADAPTER_IMAGE:-acp-websocket-adapter:local}"
 SESSION_ID="${ACP_SESSION_ID:-}"
 
 usage() {
@@ -54,7 +53,6 @@ Options:
   --question <text>             One-shot prompt text
   --interactive                 Interactive mode (type /exit to quit)
   --deny-permissions            Respond to permission requests with cancelled
-  --adapter-image <image>       Adapter image tag (default: ACP_WEBSOCKET_ADAPTER_IMAGE)
   -h, --help                    Show this help
 
 Examples:
@@ -114,10 +112,6 @@ while [[ $# -gt 0 ]]; do
       DENY_PERMISSIONS="true"
       shift
       ;;
-    --adapter-image)
-      ADAPTER_IMAGE="${2:-}"
-      shift 2
-      ;;
     -h|--help)
       usage
       exit 0
@@ -144,51 +138,37 @@ if [[ -z "$WS_URL" ]]; then
   WS_URL="ws://${WS_HOST}:${WS_PORT}"
 fi
 
-if ! command -v docker >/dev/null 2>&1; then
-  echo "docker command not found." >&2
+if ! command -v node >/dev/null 2>&1; then
+  echo "node command not found." >&2
   exit 1
 fi
 
-USE_SUDO_DOCKER="false"
-if ! docker info >/dev/null 2>&1; then
-  if command -v sudo >/dev/null 2>&1 && sudo docker info >/dev/null 2>&1; then
-    USE_SUDO_DOCKER="true"
-  else
-    echo "Docker daemon is not reachable for current user." >&2
-    exit 1
-  fi
+if ! command -v npm >/dev/null 2>&1; then
+  echo "npm command not found." >&2
+  exit 1
 fi
 
-docker_cmd() {
-  if [[ "$USE_SUDO_DOCKER" == "true" ]]; then
-    sudo docker "$@"
-  else
-    docker "$@"
-  fi
-}
+WS_CLIENT_DIR="$SCRIPT_DIR/ws-adapter"
+WS_CLIENT_SCRIPT="$WS_CLIENT_DIR/ask-websocket.js"
 
-image_needs_build="false"
-if ! docker_cmd image inspect "$ADAPTER_IMAGE" >/dev/null 2>&1; then
-  image_needs_build="true"
-elif ! docker_cmd run --rm "$ADAPTER_IMAGE" sh -lc 'test -f /app/ask-websocket.js && grep -q "ACP_SESSION_ID" /app/ask-websocket.js && grep -q "effectiveSessionId" /app/ask-websocket.js && grep -q "session/load" /app/ask-websocket.js' >/dev/null 2>&1; then
-  image_needs_build="true"
+if [[ ! -f "$WS_CLIENT_SCRIPT" ]]; then
+  echo "WebSocket client script not found: $WS_CLIENT_SCRIPT" >&2
+  exit 1
 fi
 
-if [[ "$image_needs_build" == "true" ]]; then
-  echo "Building adapter image: $ADAPTER_IMAGE"
-  docker_cmd build -f "$SCRIPT_DIR/Dockerfile.websocket-adapter" -t "$ADAPTER_IMAGE" "$SCRIPT_DIR" >/dev/null
+if [[ ! -d "$WS_CLIENT_DIR/node_modules/ws" ]]; then
+  echo "Installing websocket client dependencies in $WS_CLIENT_DIR"
+  npm --prefix "$WS_CLIENT_DIR" install --omit=dev >/dev/null
 fi
 
-docker_cmd run --rm -i --network host \
-  -e ACP_WS_URL="$WS_URL" \
-  -e ACP_WS_USER="$WS_USER" \
-  -e ACP_WS_TOKEN="$WS_TOKEN" \
-  -e ACP_CWD="$CWD" \
-  -e ACP_AGENT="$AGENT" \
-  -e ACP_AUTH_METHOD_ID="$AUTH_METHOD_ID" \
-  -e ACP_SESSION_ID="$SESSION_ID" \
-  -e ACP_QUESTION="$QUESTION" \
-  -e ACP_INTERACTIVE="$INTERACTIVE" \
-  -e ACP_DENY_PERMISSIONS="$DENY_PERMISSIONS" \
-  "$ADAPTER_IMAGE" \
-  node /app/ask-websocket.js
+ACP_WS_URL="$WS_URL" \
+ACP_WS_USER="$WS_USER" \
+ACP_WS_TOKEN="$WS_TOKEN" \
+ACP_CWD="$CWD" \
+ACP_AGENT="$AGENT" \
+ACP_AUTH_METHOD_ID="$AUTH_METHOD_ID" \
+ACP_SESSION_ID="$SESSION_ID" \
+ACP_QUESTION="$QUESTION" \
+ACP_INTERACTIVE="$INTERACTIVE" \
+ACP_DENY_PERMISSIONS="$DENY_PERMISSIONS" \
+node "$WS_CLIENT_SCRIPT"

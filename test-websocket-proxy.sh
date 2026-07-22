@@ -33,7 +33,6 @@ load_env_defaults "$SCRIPT_DIR/.env"
 ACP_WEBSOCKET_PORT="${ACP_WEBSOCKET_PORT:-}"
 WEBSOCKET_TOKEN="${WEBSOCKET_TOKEN:-}"
 WEBSOCKET_USER="${WEBSOCKET_USER:-token}"
-ACP_WEBSOCKET_ADAPTER_IMAGE="${ACP_WEBSOCKET_ADAPTER_IMAGE:-acp-websocket-adapter:local}"
 ACP_WEBSOCKET_TARGET_HOST="${ACP_WEBSOCKET_TARGET_HOST:-127.0.0.1}"
 
 if [ -z "$ACP_WEBSOCKET_PORT" ]; then
@@ -46,48 +45,109 @@ if [ -z "$WEBSOCKET_TOKEN" ]; then
   exit 1
 fi
 
-if ! command -v docker >/dev/null 2>&1; then
-  echo "docker command not found." >&2
+if ! command -v node >/dev/null 2>&1; then
+  echo "node command not found." >&2
   exit 1
 fi
 
-USE_SUDO_DOCKER=false
-if ! docker info >/dev/null 2>&1; then
-  if command -v sudo >/dev/null 2>&1 && sudo docker info >/dev/null 2>&1; then
-    USE_SUDO_DOCKER=true
-  else
-    echo "Docker daemon is not reachable for current user." >&2
-    exit 1
-  fi
+if ! command -v npm >/dev/null 2>&1; then
+  echo "npm command not found." >&2
+  exit 1
 fi
 
-docker_cmd() {
-  if [ "$USE_SUDO_DOCKER" = "true" ]; then
-    sudo docker "$@"
-  else
-    docker "$@"
-  fi
-}
+WS_CLIENT_DIR="$SCRIPT_DIR/ws-adapter"
+if [ ! -f "$WS_CLIENT_DIR/ask-websocket.js" ]; then
+  echo "WebSocket client script not found: $WS_CLIENT_DIR/ask-websocket.js" >&2
+  exit 1
+fi
+
+if [ ! -d "$WS_CLIENT_DIR/node_modules/ws" ]; then
+  echo "Installing websocket client dependencies in $WS_CLIENT_DIR"
+  npm --prefix "$WS_CLIENT_DIR" install --omit=dev >/dev/null
+fi
 
 URL="ws://127.0.0.1:${ACP_WEBSOCKET_PORT}"
 
 echo "Testing WebSocket adapter at ${URL}"
 
+print_poc_example() {
+  cat <<'EOF'
+
+Proof of concept client flow:
+
+const { WebSocket } = require('ws');
+
+const url = process.env.ACP_TEST_WS_URL;
+const user = process.env.ACP_TEST_USER || 'token';
+const token = process.env.ACP_TEST_TOKEN;
+const agent = process.env.ACP_TEST_AGENT || 'ACP-Chatbot';
+const auth = Buffer.from(`${user}:${token}`, 'utf8').toString('base64');
+
+const ws = new WebSocket(url, {
+  headers: {
+    Authorization: `Basic ${auth}`,
+  },
+});
+
+let nextId = 1;
+let buffer = '';
+let sessionId = '';
+
+function send(method, params) {
+  ws.send(JSON.stringify({ jsonrpc: '2.0', id: String(nextId++), method, params }) + '\n');
+}
+
+ws.on('open', () => {
+  send('initialize', {
+    protocolVersion: 1,
+    clientCapabilities: {},
+  });
+});
+
+ws.on('message', (chunk) => {
+  buffer += chunk.toString();
+  const lines = buffer.split('\n');
+  buffer = lines.pop() || '';
+
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    const msg = JSON.parse(line);
+
+    if (msg.id === '1' && msg.result) {
+      send('session/new', { cwd: '/workspace', mcpServers: [] });
+      continue;
+    }
+
+    if (msg.id === '2' && msg.result?.sessionId) {
+      sessionId = msg.result.sessionId;
+      send('session/set_config_option', {
+        sessionId,
+        configId: 'agent',
+        value: agent,
+      });
+      continue;
+    }
+
+    if (msg.id === '3' && msg.result) {
+      send('session/prompt', {
+        sessionId,
+        prompt: [{ type: 'text', text: 'Say hello in one sentence.' }],
+      });
+      continue;
+    }
+  }
+});
+EOF
+}
+
 tmp_out="$(mktemp)"
 trap 'rm -f "$tmp_out"' EXIT
 
-if ! docker_cmd image inspect "$ACP_WEBSOCKET_ADAPTER_IMAGE" >/dev/null 2>&1; then
-  echo "Adapter image not found: $ACP_WEBSOCKET_ADAPTER_IMAGE" >&2
-  echo "Run ./start-websocket-proxy.sh first to build and launch it." >&2
-  exit 1
-fi
-
-docker_cmd run --rm -i --network host -w /app \
-  -e ACP_TEST_WS_URL="$URL" \
-  -e ACP_TEST_USER="$WEBSOCKET_USER" \
-  -e ACP_TEST_TOKEN="$WEBSOCKET_TOKEN" \
-  "$ACP_WEBSOCKET_ADAPTER_IMAGE" \
-  node - <<'NODE' >"$tmp_out" 2>&1 || true
+(cd "$WS_CLIENT_DIR" && \
+  ACP_TEST_WS_URL="$URL" \
+  ACP_TEST_USER="$WEBSOCKET_USER" \
+  ACP_TEST_TOKEN="$WEBSOCKET_TOKEN" \
+  node - <<'NODE') >"$tmp_out" 2>&1 || true
 const { WebSocket } = require('ws');
 
 const url = process.env.ACP_TEST_WS_URL;
@@ -155,6 +215,7 @@ NODE
 if grep -q 'initialize-ok' "$tmp_out"; then
   echo "WebSocket adapter auth + ACP initialize succeeded."
   echo "Backend bridge target: ${ACP_WEBSOCKET_TARGET_HOST}:${ACP_PORT:-3000}"
+  print_poc_example
   exit 0
 fi
 

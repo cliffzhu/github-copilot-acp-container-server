@@ -1,6 +1,6 @@
 # WebSocket Endpoint Guide
 
-This project can expose ACP over a WebSocket endpoint through the custom adapter container.
+This project can expose ACP over a WebSocket endpoint through the built-in adapter in the same ACP container.
 
 ## Endpoint Summary
 
@@ -10,19 +10,24 @@ This project can expose ACP over a WebSocket endpoint through the custom adapter
 - Username: `WEBSOCKET_USER` (default `token`)
 - Password: `WEBSOCKET_TOKEN`
 
-## Start Both Containers
+## Start ACP With WebSocket Enabled
 
-Option 1: Docker Compose profile (builds both images):
-
-```bash
-docker compose --profile websocket up -d --build
-```
-
-Option 2: Start ACP first, then adapter script:
+Option 1: Set values in `.env` and start normally:
 
 ```bash
 docker compose up -d --build
-./start-websocket-proxy.sh
+```
+
+Required `.env` values:
+
+- `ACP_WEBSOCKET_SERVER_ENABLED=true`
+- `ACP_WEBSOCKET_PORT=8080`
+- `WEBSOCKET_TOKEN=<long-random-secret>`
+
+Option 2: One-shot command override:
+
+```bash
+ACP_WEBSOCKET_SERVER_ENABLED=true ACP_WEBSOCKET_PORT=8080 WEBSOCKET_TOKEN="<long-random-secret>" docker compose up -d --build
 ```
 
 ## Verify Endpoint
@@ -104,6 +109,7 @@ ws.on('message', (msg) => {
 
 - `401 Unauthorized`: verify `WEBSOCKET_USER` and `WEBSOCKET_TOKEN`.
 - No response to `initialize`: ensure each JSON-RPC payload ends with `\n`.
-- Adapter exits on startup: set `WEBSOCKET_TOKEN` in `.env`.
-- ACP not reachable: ensure ACP server is running and `ACP_PORT`/`ACP_WEBSOCKET_TARGET_HOST` are correct.
+- Adapter exits on startup: set `ACP_WEBSOCKET_SERVER_ENABLED=true` and `WEBSOCKET_TOKEN` in `.env`.
+- ACP not reachable: ensure ACP server is running and `ACP_WEBSOCKET_TARGET_HOST`/`ACP_WEBSOCKET_TARGET_PORT` are correct (recommended same-container values are `127.0.0.1` and `ACP_INTERNAL_PORT`, typically `3001`).
+- Startup fails with invalid upstream/self-reference: `ACP_WEBSOCKET_TARGET_HOST` + `ACP_WEBSOCKET_TARGET_PORT` is pointing at the websocket listener itself. Use loopback + ACP internal runtime port instead.
 - Resume falls back to new session: the server may have evicted or restarted the session.

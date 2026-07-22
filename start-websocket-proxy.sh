@@ -34,12 +34,12 @@ ACP_PORT="${ACP_PORT:-3000}"
 ACP_WEBSOCKET_PORT="${ACP_WEBSOCKET_PORT:-}"
 WEBSOCKET_TOKEN="${WEBSOCKET_TOKEN:-}"
 WEBSOCKET_USER="${WEBSOCKET_USER:-token}"
-PROXY_CONTAINER_NAME="${ACP_WEBSOCKET_CONTAINER_NAME:-acp-websocket-proxy}"
+PROXY_CONTAINER_NAME="${ACP_WEBSOCKET_CONTAINER_NAME:-acp-server}"
 ACP_WEBSOCKET_TARGET_HOST="${ACP_WEBSOCKET_TARGET_HOST:-127.0.0.1}"
-ACP_WEBSOCKET_ADAPTER_IMAGE="${ACP_WEBSOCKET_ADAPTER_IMAGE:-acp-websocket-adapter:local}"
+ACP_SERVER_IMAGE="${ACP_SERVER_IMAGE:-github-copilot-acp-container-server:local}"
 
 if [ -z "$ACP_WEBSOCKET_PORT" ]; then
-  echo "ACP_WEBSOCKET_PORT is empty. Set it in .env (example: ACP_WEBSOCKET_PORT=8081)." >&2
+  echo "ACP_WEBSOCKET_PORT is empty. Set it in .env (example: ACP_WEBSOCKET_PORT=8080)." >&2
   exit 1
 fi
 
@@ -73,25 +73,33 @@ docker_cmd() {
 
 docker_cmd rm -f "$PROXY_CONTAINER_NAME" >/dev/null 2>&1 || true
 
-if ! docker_cmd image inspect "$ACP_WEBSOCKET_ADAPTER_IMAGE" >/dev/null 2>&1; then
-  echo "Building custom ACP WebSocket adapter image: $ACP_WEBSOCKET_ADAPTER_IMAGE"
+if ! docker_cmd image inspect "$ACP_SERVER_IMAGE" >/dev/null 2>&1; then
+  echo "Building unified ACP image: $ACP_SERVER_IMAGE"
   docker_cmd build \
-    -f "$SCRIPT_DIR/Dockerfile.websocket-adapter" \
-    -t "$ACP_WEBSOCKET_ADAPTER_IMAGE" \
+    -f "$SCRIPT_DIR/Dockerfile" \
+    -t "$ACP_SERVER_IMAGE" \
     "$SCRIPT_DIR" >/dev/null
 fi
 
 docker_cmd run -d \
   --name "$PROXY_CONTAINER_NAME" \
   --restart unless-stopped \
-  --network host \
+  -p "$ACP_PORT:$ACP_PORT" \
+  -p "$ACP_WEBSOCKET_PORT:$ACP_WEBSOCKET_PORT" \
+  -v "$SCRIPT_DIR/workspace:/workspace" \
+  -v "$SCRIPT_DIR/copilot-home:/root/.copilot" \
+  --env-file "$SCRIPT_DIR/.env" \
+  -e ACP_BIND_ALL_INTERFACES=true \
+  -e ACP_WEBSOCKET_SERVER_ENABLED=true \
   -e ACP_WEBSOCKET_PORT="$ACP_WEBSOCKET_PORT" \
   -e ACP_WEBSOCKET_TARGET_HOST="$ACP_WEBSOCKET_TARGET_HOST" \
   -e ACP_PORT="$ACP_PORT" \
   -e WEBSOCKET_USER="$WEBSOCKET_USER" \
   -e WEBSOCKET_TOKEN="$WEBSOCKET_TOKEN" \
-  "$ACP_WEBSOCKET_ADAPTER_IMAGE" >/dev/null
+  "$ACP_SERVER_IMAGE" >/dev/null
 
-echo "WebSocket adapter started: ws://<host>:$ACP_WEBSOCKET_PORT -> ${ACP_WEBSOCKET_TARGET_HOST}:$ACP_PORT"
+echo "Unified ACP + WebSocket container started."
+echo "ACP TCP endpoint: http://<host>:$ACP_PORT"
+echo "WebSocket endpoint: ws://<host>:$ACP_WEBSOCKET_PORT -> ${ACP_WEBSOCKET_TARGET_HOST}:$ACP_PORT"
 echo "Basic auth user: $WEBSOCKET_USER"
 echo "Container: $PROXY_CONTAINER_NAME"
