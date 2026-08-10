@@ -53,6 +53,7 @@ ACP_INTERNAL_PORT="${ACP_INTERNAL_PORT:-3001}"
 ACP_BOOTSTRAP_DEFAULT_AGENT="${ACP_BOOTSTRAP_DEFAULT_AGENT:-true}"
 ACP_AUTH_METHOD_ID="${ACP_AUTH_METHOD_ID:-}"
 ACP_AGENT_TEMPLATE_SOURCE="${ACP_AGENT_TEMPLATE_SOURCE:-$ACP_WORKDIR/ACP-Chatbot.agent.local.md}"
+ACP_WORKDIR_DOC_SOURCE="${ACP_WORKDIR_DOC_SOURCE:-}"
 ACP_WEBSOCKET_SERVER_ENABLED="${ACP_WEBSOCKET_SERVER_ENABLED:-false}"
 ACP_WEBSOCKET_PORT="${ACP_WEBSOCKET_PORT:-8080}"
 ACP_WEBSOCKET_TARGET_HOST="${ACP_WEBSOCKET_TARGET_HOST:-127.0.0.1}"
@@ -167,6 +168,46 @@ cleanup_background() {
 
 has_auth_token_env() {
   [ -n "${COPILOT_GITHUB_TOKEN:-}" ] || [ -n "${GH_TOKEN:-}" ] || [ -n "${GITHUB_TOKEN:-}" ]
+}
+
+has_byok_provider_env() {
+  [ -n "${COPILOT_PROVIDER_BASE_URL:-}" ] && [ -n "${COPILOT_MODEL:-}" ]
+}
+
+byok_provider_type() {
+  if [ -n "${COPILOT_PROVIDER_TYPE:-}" ]; then
+    echo "$COPILOT_PROVIDER_TYPE" | tr '[:upper:]' '[:lower:]'
+  else
+    echo "openai"
+  fi
+}
+
+validate_byok_provider_config() {
+  if ! has_byok_provider_env; then
+    return 1
+  fi
+
+  provider_type="$(byok_provider_type)"
+
+  case "$provider_type" in
+    openai|azure|anthropic)
+      ;;
+    *)
+      echo "Unsupported COPILOT_PROVIDER_TYPE: $provider_type (expected: openai, azure, anthropic)." >&2
+      return 1
+      ;;
+  esac
+
+  # Azure and Anthropic provider flows require an API key for headless startup.
+  if [ "$provider_type" = "azure" ] || [ "$provider_type" = "anthropic" ]; then
+    if [ -z "${COPILOT_PROVIDER_API_KEY:-}" ]; then
+      echo "COPILOT_PROVIDER_API_KEY is required when COPILOT_PROVIDER_TYPE=$provider_type." >&2
+      return 1
+    fi
+  fi
+
+  export COPILOT_PROVIDER_TYPE="$provider_type"
+  return 0
 }
 
 auth_token_env_name() {
@@ -304,6 +345,14 @@ ensure_copilot_auth() {
     return 0
   fi
 
+  if has_byok_provider_env; then
+    if validate_byok_provider_config; then
+      echo "Copilot BYOK provider auth enabled via COPILOT_PROVIDER_BASE_URL + COPILOT_MODEL; skipping GitHub device sign-in."
+      return 0
+    fi
+    return 1
+  fi
+
   if is_copilot_authenticated; then
     echo "Copilot is already authenticated."
     return 0
@@ -353,11 +402,42 @@ bootstrap_default_agent() {
     return 1
   fi
 
-  if [ ! -f "$AGENT_FILE" ] || ! cmp -s "$ACP_AGENT_TEMPLATE_SOURCE" "$AGENT_FILE"; then
-    cp "$ACP_AGENT_TEMPLATE_SOURCE" "$AGENT_FILE"
-    echo "Synced default custom agent into runtime workdir: $AGENT_FILE"
+  cp "$ACP_AGENT_TEMPLATE_SOURCE" "$AGENT_FILE"
+  echo "Synced default custom agent into runtime workdir: $AGENT_FILE"
+
+  return 0
+}
+
+sync_workdir_doc_source() {
+  if [ -z "$ACP_WORKDIR_DOC_SOURCE" ]; then
+    return 0
   fi
 
+  if [ ! -d "$ACP_WORKDIR_DOC_SOURCE" ]; then
+    echo "ACP_WORKDIR_DOC_SOURCE is set but is not a valid directory; skipping doc sync: $ACP_WORKDIR_DOC_SOURCE" >&2
+    return 0
+  fi
+
+  if [ -z "$(find "$ACP_WORKDIR_DOC_SOURCE" -type f -print -quit 2>/dev/null)" ]; then
+    echo "ACP_WORKDIR_DOC_SOURCE contains no documents; skipping doc sync: $ACP_WORKDIR_DOC_SOURCE"
+    return 0
+  fi
+
+  echo "Syncing documents from ACP_WORKDIR_DOC_SOURCE into ACP_WORKDIR: $ACP_WORKDIR_DOC_SOURCE -> $ACP_WORKDIR"
+
+  if command -v rsync >/dev/null 2>&1; then
+    if ! rsync -a "$ACP_WORKDIR_DOC_SOURCE"/ "$ACP_WORKDIR"/; then
+      echo "Failed to sync documents from ACP_WORKDIR_DOC_SOURCE via rsync: $ACP_WORKDIR_DOC_SOURCE" >&2
+      return 1
+    fi
+  else
+    if ! cp -a "$ACP_WORKDIR_DOC_SOURCE"/. "$ACP_WORKDIR"/; then
+      echo "Failed to copy documents from ACP_WORKDIR_DOC_SOURCE: $ACP_WORKDIR_DOC_SOURCE" >&2
+      return 1
+    fi
+  fi
+
+  echo "Document sync complete."
   return 0
 }
 
@@ -390,6 +470,8 @@ if [ "$ACP_REQUIRE_LOGIN" = "true" ]; then
 fi
 
 bootstrap_default_agent
+
+sync_workdir_doc_source
 
 COPILOT_PORT="$ACP_PORT"
 if [ "$ACP_BIND_ALL_INTERFACES" = "true" ]; then
