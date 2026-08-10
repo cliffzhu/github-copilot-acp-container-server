@@ -12,6 +12,7 @@ services:
       ACP_WEBSOCKET_TARGET_HOST: ${ACP_WEBSOCKET_TARGET_HOST:-127.0.0.1}
       ACP_WEBSOCKET_TARGET_PORT: ${ACP_WEBSOCKET_TARGET_PORT:-}
       ACP_AGENT_TEMPLATE_SOURCE: ${ACP_AGENT_TEMPLATE_SOURCE:-/host-repo/ACP-Chatbot.agent.local.md}
+      ACP_WORKDIR_DOC_SOURCE: ${ACP_WORKDIR_DOC_SOURCE:-}
       WEBSOCKET_USER: ${WEBSOCKET_USER:-token}
       WEBSOCKET_TOKEN: ${WEBSOCKET_TOKEN:-}
     ports:
@@ -21,4 +22,8 @@ services:
       - ./workspace:/workspace
       - ./copilot-home:/root/.copilot
       - ./:/host-repo:ro
+      # Optional: mount an external documents folder and point ACP_WORKDIR_DOC_SOURCE
+      # at it (e.g. ACP_WORKDIR_DOC_SOURCE=/doc-source) to have startup sync/copy
+      # its files into ACP_WORKDIR on every container start.
+      # - /path/on/host/docs:/doc-source:ro
     restart: unless-stopped

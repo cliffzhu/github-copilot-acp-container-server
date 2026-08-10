@@ -53,6 +53,7 @@ ACP_INTERNAL_PORT="${ACP_INTERNAL_PORT:-3001}"
 ACP_BOOTSTRAP_DEFAULT_AGENT="${ACP_BOOTSTRAP_DEFAULT_AGENT:-true}"
 ACP_AUTH_METHOD_ID="${ACP_AUTH_METHOD_ID:-}"
 ACP_AGENT_TEMPLATE_SOURCE="${ACP_AGENT_TEMPLATE_SOURCE:-$ACP_WORKDIR/ACP-Chatbot.agent.local.md}"
+ACP_WORKDIR_DOC_SOURCE="${ACP_WORKDIR_DOC_SOURCE:-}"
 ACP_WEBSOCKET_SERVER_ENABLED="${ACP_WEBSOCKET_SERVER_ENABLED:-false}"
 ACP_WEBSOCKET_PORT="${ACP_WEBSOCKET_PORT:-8080}"
 ACP_WEBSOCKET_TARGET_HOST="${ACP_WEBSOCKET_TARGET_HOST:-127.0.0.1}"
@@ -407,6 +408,39 @@ bootstrap_default_agent() {
   return 0
 }
 
+sync_workdir_doc_source() {
+  if [ -z "$ACP_WORKDIR_DOC_SOURCE" ]; then
+    return 0
+  fi
+
+  if [ ! -d "$ACP_WORKDIR_DOC_SOURCE" ]; then
+    echo "ACP_WORKDIR_DOC_SOURCE is set but is not a valid directory; skipping doc sync: $ACP_WORKDIR_DOC_SOURCE" >&2
+    return 0
+  fi
+
+  if [ -z "$(find "$ACP_WORKDIR_DOC_SOURCE" -type f -print -quit 2>/dev/null)" ]; then
+    echo "ACP_WORKDIR_DOC_SOURCE contains no documents; skipping doc sync: $ACP_WORKDIR_DOC_SOURCE"
+    return 0
+  fi
+
+  echo "Syncing documents from ACP_WORKDIR_DOC_SOURCE into ACP_WORKDIR: $ACP_WORKDIR_DOC_SOURCE -> $ACP_WORKDIR"
+
+  if command -v rsync >/dev/null 2>&1; then
+    if ! rsync -a "$ACP_WORKDIR_DOC_SOURCE"/ "$ACP_WORKDIR"/; then
+      echo "Failed to sync documents from ACP_WORKDIR_DOC_SOURCE via rsync: $ACP_WORKDIR_DOC_SOURCE" >&2
+      return 1
+    fi
+  else
+    if ! cp -a "$ACP_WORKDIR_DOC_SOURCE"/. "$ACP_WORKDIR"/; then
+      echo "Failed to copy documents from ACP_WORKDIR_DOC_SOURCE: $ACP_WORKDIR_DOC_SOURCE" >&2
+      return 1
+    fi
+  fi
+
+  echo "Document sync complete."
+  return 0
+}
+
 echo "Starting Copilot ACP server"
 echo "Working directory: $ACP_WORKDIR"
 echo "Port: $ACP_PORT"
@@ -436,6 +470,8 @@ if [ "$ACP_REQUIRE_LOGIN" = "true" ]; then
 fi
 
 bootstrap_default_agent
+
+sync_workdir_doc_source
 
 COPILOT_PORT="$ACP_PORT"
 if [ "$ACP_BIND_ALL_INTERFACES" = "true" ]; then
