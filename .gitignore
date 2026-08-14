@@ -5,5 +5,6 @@ dist/
 npm-debug.log*
 coverage/
 copilot-home/
-workspace/
+workspace/*
+!workspace/.gitkeep
 ACP-Chatbot.agent.local.md

@@ -367,7 +367,7 @@ All runtime values are environment variables loaded from `.env`.
 | `ACP_PORT` | `3000` | ACP TCP port passed to `copilot --acp`. |
 | `ACP_AGENT` | `ACP-Chatbot` | Agent passed to `--agent`. |
 | `ACP_WORKDIR` | `/workspace` | Working directory passed to `-C`. Created automatically at startup when missing. |
-| `ACP_WORKDIR_DOC_SOURCE` | _unset_ | Optional path to a directory of documents. When set to a valid, non-empty directory, startup copies/syncs its contents into `ACP_WORKDIR` on every startup (uses `rsync -a` when available, otherwise `cp -a`). Ignored when unset, missing, or empty. |
+| `ACP_WORKDIR_DOC_SOURCE` | `/opt/acp-library` (image default), empty in Docker Compose | Path to a directory of documents. When set to a valid, non-empty directory, startup copies/syncs its contents into `ACP_WORKDIR` on every startup (uses `rsync -a` when available, otherwise `cp -a`; existing files are overwritten). `/opt/acp-library` is baked into the image at build time from the local `workspace/` folder, so plain `docker run` deployments ship with the document library out of the box. Docker Compose sets this to empty because `./workspace:/workspace` is already a live bind mount of the same docs. Ignored when unset, missing, or empty. |
 | `ACP_AVAILABLE_TOOLS` | `glob,rg,read_agent,list_agents,view,skill` | Explicit allow-list passed to `--available-tools`. |
 | `ACP_DISALLOW_TEMP_DIR` | `true` | Adds `--disallow-temp-dir` when true. |
 | `ACP_DISABLE_BUILTIN_MCPS` | `true` | Adds `--disable-builtin-mcps` when true. |

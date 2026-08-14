@@ -53,7 +53,12 @@ ACP_INTERNAL_PORT="${ACP_INTERNAL_PORT:-3001}"
 ACP_BOOTSTRAP_DEFAULT_AGENT="${ACP_BOOTSTRAP_DEFAULT_AGENT:-true}"
 ACP_AUTH_METHOD_ID="${ACP_AUTH_METHOD_ID:-}"
 ACP_AGENT_TEMPLATE_SOURCE="${ACP_AGENT_TEMPLATE_SOURCE:-$ACP_WORKDIR/ACP-Chatbot.agent.local.md}"
-ACP_WORKDIR_DOC_SOURCE="${ACP_WORKDIR_DOC_SOURCE:-}"
+# Note: uses ${VAR-default} (no colon) so an explicitly empty value (e.g. set by
+# docker-compose.yml to disable doc sync when ACP_WORKDIR is already a live
+# bind mount of the docs) is preserved as empty, while a fully unset variable
+# (e.g. plain `docker run` without this env var) falls back to the image's
+# baked-in document library.
+ACP_WORKDIR_DOC_SOURCE="${ACP_WORKDIR_DOC_SOURCE-/opt/acp-library}"
 ACP_WEBSOCKET_SERVER_ENABLED="${ACP_WEBSOCKET_SERVER_ENABLED:-false}"
 ACP_WEBSOCKET_PORT="${ACP_WEBSOCKET_PORT:-8080}"
 ACP_WEBSOCKET_TARGET_HOST="${ACP_WEBSOCKET_TARGET_HOST:-127.0.0.1}"
@@ -95,11 +100,14 @@ is_enabled() {
 
 ensure_workdir_ready() {
   if [ ! -d "$ACP_WORKDIR" ]; then
-    echo "ACP working directory does not exist. Creating: $ACP_WORKDIR"
+    echo "[boot] Working directory not found; creating folder: $ACP_WORKDIR"
     if ! mkdir -p "$ACP_WORKDIR"; then
       echo "Failed to create ACP working directory: $ACP_WORKDIR" >&2
       return 1
     fi
+    echo "[boot] Folder created: $ACP_WORKDIR"
+  else
+    echo "[boot] Working directory already exists: $ACP_WORKDIR"
   fi
 
   if [ ! -w "$ACP_WORKDIR" ]; then
@@ -378,11 +386,15 @@ ensure_copilot_auth() {
 }
 
 bootstrap_default_agent() {
+  echo "[boot] Bootstrapping default custom agent..."
+
   if [ "$ACP_BOOTSTRAP_DEFAULT_AGENT" != "true" ]; then
+    echo "[boot] ACP_BOOTSTRAP_DEFAULT_AGENT is disabled; skipping agent bootstrap."
     return 0
   fi
 
   if [ "$ACP_AGENT" != "ACP-Chatbot" ]; then
+    echo "[boot] ACP_AGENT is not ACP-Chatbot; skipping default agent bootstrap."
     return 0
   fi
 
@@ -391,9 +403,12 @@ bootstrap_default_agent() {
 
   if [ ! -f "$ACP_AGENT_TEMPLATE_SOURCE" ] && [ -f "$SCRIPT_DIR/ACP-Chatbot.agent.md" ]; then
     ACP_AGENT_TEMPLATE_SOURCE="$SCRIPT_DIR/ACP-Chatbot.agent.md"
-    echo "Local agent template not found in workspace; using built-in template from image."
+    echo "[boot] Local agent template not found in workspace; using built-in template from image."
   fi
 
+  if [ ! -d "$AGENT_DIR" ]; then
+    echo "[boot] Creating agent folder: $AGENT_DIR"
+  fi
   mkdir -p "$AGENT_DIR"
 
   if [ ! -f "$ACP_AGENT_TEMPLATE_SOURCE" ]; then
@@ -402,14 +417,18 @@ bootstrap_default_agent() {
     return 1
   fi
 
+  echo "[boot] Copying agent template: $ACP_AGENT_TEMPLATE_SOURCE -> $AGENT_FILE"
   cp "$ACP_AGENT_TEMPLATE_SOURCE" "$AGENT_FILE"
-  echo "Synced default custom agent into runtime workdir: $AGENT_FILE"
+  echo "[boot] Synced default custom agent into runtime workdir: $AGENT_FILE"
 
   return 0
 }
 
 sync_workdir_doc_source() {
+  echo "[boot] Checking document sync source..."
+
   if [ -z "$ACP_WORKDIR_DOC_SOURCE" ]; then
+    echo "[boot] ACP_WORKDIR_DOC_SOURCE not set; skipping document sync."
     return 0
   fi
 
@@ -418,26 +437,34 @@ sync_workdir_doc_source() {
     return 0
   fi
 
-  if [ -z "$(find "$ACP_WORKDIR_DOC_SOURCE" -type f -print -quit 2>/dev/null)" ]; then
+  doc_count="$(find "$ACP_WORKDIR_DOC_SOURCE" -type f 2>/dev/null | wc -l | tr -d ' ')"
+  if [ "$doc_count" -eq 0 ]; then
     echo "ACP_WORKDIR_DOC_SOURCE contains no documents; skipping doc sync: $ACP_WORKDIR_DOC_SOURCE"
     return 0
   fi
 
-  echo "Syncing documents from ACP_WORKDIR_DOC_SOURCE into ACP_WORKDIR: $ACP_WORKDIR_DOC_SOURCE -> $ACP_WORKDIR"
+  echo "[boot] Syncing $doc_count document(s) from ACP_WORKDIR_DOC_SOURCE into ACP_WORKDIR: $ACP_WORKDIR_DOC_SOURCE -> $ACP_WORKDIR"
 
   if command -v rsync >/dev/null 2>&1; then
-    if ! rsync -a "$ACP_WORKDIR_DOC_SOURCE"/ "$ACP_WORKDIR"/; then
+    if ! rsync -av --out-format='[boot] sync: %n' "$ACP_WORKDIR_DOC_SOURCE"/ "$ACP_WORKDIR"/; then
       echo "Failed to sync documents from ACP_WORKDIR_DOC_SOURCE via rsync: $ACP_WORKDIR_DOC_SOURCE" >&2
       return 1
     fi
   else
-    if ! cp -a "$ACP_WORKDIR_DOC_SOURCE"/. "$ACP_WORKDIR"/; then
+    find "$ACP_WORKDIR_DOC_SOURCE" -type f | while IFS= read -r src_file; do
+      rel_path="${src_file#$ACP_WORKDIR_DOC_SOURCE/}"
+      dest_file="$ACP_WORKDIR/$rel_path"
+      mkdir -p "$(dirname "$dest_file")"
+      echo "[boot] sync: $rel_path"
+      cp -a "$src_file" "$dest_file"
+    done
+    if [ $? -ne 0 ]; then
       echo "Failed to copy documents from ACP_WORKDIR_DOC_SOURCE: $ACP_WORKDIR_DOC_SOURCE" >&2
       return 1
     fi
   fi
 
-  echo "Document sync complete."
+  echo "[boot] Document sync complete ($doc_count file(s))."
   return 0
 }
 
@@ -455,6 +482,7 @@ else
   echo "WebSocket proxy switch: OFF"
 fi
 
+echo "[boot] === Preflight checks ==="
 if ! preflight_startup; then
   exit 1
 fi
@@ -466,11 +494,14 @@ else
 fi
 
 if [ "$ACP_REQUIRE_LOGIN" = "true" ]; then
+  echo "[boot] === Copilot authentication ==="
   ensure_copilot_auth
 fi
 
+echo "[boot] === Agent bootstrap ==="
 bootstrap_default_agent
 
+echo "[boot] === Document sync ==="
 sync_workdir_doc_source
 
 COPILOT_PORT="$ACP_PORT"
@@ -496,6 +527,7 @@ if is_enabled "$ACP_WEBSOCKET_SERVER_ENABLED"; then
   start_websocket_adapter "$WS_TARGET_PORT"
 fi
 
+echo "[boot] === Launching Copilot ACP process ==="
 set -- copilot --acp --port "$COPILOT_PORT" -C "$ACP_WORKDIR" --agent "$ACP_AGENT" --available-tools="$ACP_AVAILABLE_TOOLS"
 
 if [ "$ACP_DISALLOW_TEMP_DIR" = "true" ]; then

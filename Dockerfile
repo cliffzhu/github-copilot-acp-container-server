@@ -17,6 +17,13 @@ RUN npm install -g @github/copilot@latest
 
 RUN mkdir -p /workspace
 
+# Bake the local document library (workspace/) into the image so deployments
+# without an external ACP_WORKDIR_DOC_SOURCE mount still ship with docs.
+# Runtime-managed agent files (.github/) are excluded; those are synced by
+# bootstrap_default_agent in start-acp.sh instead.
+COPY workspace/ /opt/acp-library/
+RUN rm -rf /opt/acp-library/.github /opt/acp-library/.gitkeep
+
 COPY start-acp.sh /usr/local/bin/start-acp.sh
 COPY ACP-Chatbot.agent.md /usr/local/bin/ACP-Chatbot.agent.md
 RUN chmod +x /usr/local/bin/start-acp.sh
