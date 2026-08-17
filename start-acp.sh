@@ -59,6 +59,7 @@ ACP_AGENT_TEMPLATE_SOURCE="${ACP_AGENT_TEMPLATE_SOURCE:-$ACP_WORKDIR/ACP-Chatbot
 # (e.g. plain `docker run` without this env var) falls back to the image's
 # baked-in document library.
 ACP_WORKDIR_DOC_SOURCE="${ACP_WORKDIR_DOC_SOURCE-/opt/acp-library}"
+DOC_SYNC_CRON_INTERVAL_HOURS="${DOC_SYNC_CRON_INTERVAL_HOURS:-}"
 ACP_WEBSOCKET_SERVER_ENABLED="${ACP_WEBSOCKET_SERVER_ENABLED:-false}"
 ACP_WEBSOCKET_PORT="${ACP_WEBSOCKET_PORT:-8080}"
 ACP_WEBSOCKET_TARGET_HOST="${ACP_WEBSOCKET_TARGET_HOST:-127.0.0.1}"
@@ -75,6 +76,7 @@ fi
 # Guard to avoid repeated npm reinstall attempts during auth retry loops.
 COPILOT_SELF_HEAL_ATTEMPTED=0
 ACP_WEBSOCKET_PID=""
+DOC_SYNC_CRON_PID=""
 
 require_command() {
   cmd="$1"
@@ -171,6 +173,11 @@ cleanup_background() {
   if [ -n "$ACP_WEBSOCKET_PID" ]; then
     kill "$ACP_WEBSOCKET_PID" 2>/dev/null || true
     wait "$ACP_WEBSOCKET_PID" 2>/dev/null || true
+  fi
+
+  if [ -n "$DOC_SYNC_CRON_PID" ]; then
+    kill "$DOC_SYNC_CRON_PID" 2>/dev/null || true
+    wait "$DOC_SYNC_CRON_PID" 2>/dev/null || true
   fi
 }
 
@@ -443,10 +450,10 @@ sync_workdir_doc_source() {
     return 0
   fi
 
-  echo "[boot] Syncing $doc_count document(s) from ACP_WORKDIR_DOC_SOURCE into ACP_WORKDIR: $ACP_WORKDIR_DOC_SOURCE -> $ACP_WORKDIR"
+  echo "[sync] Syncing $doc_count document(s) from ACP_WORKDIR_DOC_SOURCE into ACP_WORKDIR: $ACP_WORKDIR_DOC_SOURCE -> $ACP_WORKDIR"
 
   if command -v rsync >/dev/null 2>&1; then
-    if ! rsync -av --out-format='[boot] sync: %n' "$ACP_WORKDIR_DOC_SOURCE"/ "$ACP_WORKDIR"/; then
+    if ! rsync -avu --out-format='[sync] updated: %n' "$ACP_WORKDIR_DOC_SOURCE"/ "$ACP_WORKDIR"/; then
       echo "Failed to sync documents from ACP_WORKDIR_DOC_SOURCE via rsync: $ACP_WORKDIR_DOC_SOURCE" >&2
       return 1
     fi
@@ -454,8 +461,11 @@ sync_workdir_doc_source() {
     find "$ACP_WORKDIR_DOC_SOURCE" -type f | while IFS= read -r src_file; do
       rel_path="${src_file#$ACP_WORKDIR_DOC_SOURCE/}"
       dest_file="$ACP_WORKDIR/$rel_path"
+      if [ -f "$dest_file" ] && [ ! "$src_file" -nt "$dest_file" ]; then
+        continue
+      fi
       mkdir -p "$(dirname "$dest_file")"
-      echo "[boot] sync: $rel_path"
+      echo "[sync] updated: $rel_path"
       cp -a "$src_file" "$dest_file"
     done
     if [ $? -ne 0 ]; then
@@ -464,9 +474,60 @@ sync_workdir_doc_source() {
     fi
   fi
 
-  echo "[boot] Document sync complete ($doc_count file(s))."
+  echo "[sync] Document sync complete ($doc_count source file(s) checked)."
   return 0
 }
+
+start_doc_sync_cron() {
+  if [ -z "$DOC_SYNC_CRON_INTERVAL_HOURS" ]; then
+    echo "[boot] DOC_SYNC_CRON_INTERVAL_HOURS not set; recurring document sync is disabled."
+    return 0
+  fi
+
+  case "$DOC_SYNC_CRON_INTERVAL_HOURS" in
+    *[!0-9]*|'')
+      echo "DOC_SYNC_CRON_INTERVAL_HOURS must be an integer from 1 to 24: $DOC_SYNC_CRON_INTERVAL_HOURS" >&2
+      return 1
+      ;;
+  esac
+
+  if [ "$DOC_SYNC_CRON_INTERVAL_HOURS" -lt 1 ] || [ "$DOC_SYNC_CRON_INTERVAL_HOURS" -gt 24 ]; then
+    echo "DOC_SYNC_CRON_INTERVAL_HOURS must be between 1 and 24: $DOC_SYNC_CRON_INTERVAL_HOURS" >&2
+    return 1
+  fi
+
+  if [ -z "$ACP_WORKDIR_DOC_SOURCE" ] || [ ! -d "$ACP_WORKDIR_DOC_SOURCE" ]; then
+    echo "[boot] Recurring document sync skipped because ACP_WORKDIR_DOC_SOURCE is empty or unavailable."
+    return 0
+  fi
+
+  require_command cron "Install cron or unset DOC_SYNC_CRON_INTERVAL_HOURS." || return 1
+
+  cron_hour="*/$DOC_SYNC_CRON_INTERVAL_HOURS"
+  if [ "$DOC_SYNC_CRON_INTERVAL_HOURS" -eq 24 ]; then
+    cron_hour="0"
+  fi
+
+  cron_source="$(printf '%s' "$ACP_WORKDIR_DOC_SOURCE" | sed "s/'/'\\\\''/g")"
+  cron_workdir="$(printf '%s' "$ACP_WORKDIR" | sed "s/'/'\\\\''/g")"
+  cron_script="$(printf '%s' "$SCRIPT_DIR/$(basename "$0")" | sed "s/'/'\\\\''/g")"
+
+  {
+    echo "SHELL=/bin/sh"
+    echo "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    echo "0 $cron_hour * * * root ACP_WORKDIR_DOC_SOURCE='$cron_source' ACP_WORKDIR='$cron_workdir' '$cron_script' --sync-documents >>/proc/1/fd/1 2>>/proc/1/fd/2"
+  } > /etc/cron.d/acp-doc-sync
+  chmod 0644 /etc/cron.d/acp-doc-sync
+
+  cron -f &
+  DOC_SYNC_CRON_PID=$!
+  echo "[boot] Recurring document sync enabled every $DOC_SYNC_CRON_INTERVAL_HOURS hour(s)."
+}
+
+if [ "${1:-}" = "--sync-documents" ]; then
+  sync_workdir_doc_source
+  exit $?
+fi
 
 echo "Starting Copilot ACP server"
 echo "Working directory: $ACP_WORKDIR"
@@ -503,6 +564,7 @@ bootstrap_default_agent
 
 echo "[boot] === Document sync ==="
 sync_workdir_doc_source
+start_doc_sync_cron
 
 COPILOT_PORT="$ACP_PORT"
 if [ "$ACP_BIND_ALL_INTERFACES" = "true" ]; then
@@ -554,7 +616,7 @@ if [ "$ACP_BIND_ALL_INTERFACES" = "true" ]; then
   exit "$EXIT_CODE"
 fi
 
-if [ -n "$ACP_WEBSOCKET_PID" ]; then
+if [ -n "$ACP_WEBSOCKET_PID" ] || [ -n "$DOC_SYNC_CRON_PID" ]; then
   trap cleanup_background EXIT INT TERM
 fi
 
