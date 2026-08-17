@@ -4,7 +4,7 @@ WORKDIR /app
 
 # Tools used by Copilot's allowed toolset and local repository workflows.
 RUN apt-get update \
-	&& apt-get install -y --no-install-recommends ca-certificates expect git ripgrep rsync socat \
+	&& apt-get install -y --no-install-recommends ca-certificates cron expect git ripgrep rsync socat \
 	&& rm -rf /var/lib/apt/lists/*
 
 COPY ws-adapter/package.json /app/ws-adapter/package.json
