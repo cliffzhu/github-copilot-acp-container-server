@@ -590,7 +590,7 @@ if is_enabled "$ACP_WEBSOCKET_SERVER_ENABLED"; then
 fi
 
 echo "[boot] === Launching Copilot ACP process ==="
-set -- copilot --acp --port "$COPILOT_PORT" -C "$ACP_WORKDIR" --agent "$ACP_AGENT" --available-tools="$ACP_AVAILABLE_TOOLS"
+set -- copilot --acp --port "$COPILOT_PORT" -C "$ACP_WORKDIR" --agent "$ACP_AGENT" --available-tools="$ACP_AVAILABLE_TOOLS" --output-format=json
 
 if [ "$ACP_DISALLOW_TEMP_DIR" = "true" ]; then
   set -- "$@" --disallow-temp-dir
